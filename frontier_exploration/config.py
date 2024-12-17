@@ -10,7 +10,7 @@ MODEL_CONFIG = {
     'input_shape': (84, 84, 1),
     'max_frontiers': 200,  # 这个值要和动作空间大小匹配
     'memory_size': 10000,
-    'batch_size': 32,
+    'batch_size': 16,
     'gamma': 0.99,
     'epsilon_min': 0.1,
     'epsilon_decay': 0.995
@@ -40,7 +40,7 @@ ROBOT_CONFIG = {
     'target_reach_threshold': 5, # 目标达到阈值
     
     # A*寻路优化
-    'safety_distance': 30,        # 安全距离
+    'safety_distance': 10,        # 安全距离
     'diagonal_weight': 1.2,      # 对角线移动代价
     
     # 可视化更新频率

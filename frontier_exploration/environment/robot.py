@@ -7,8 +7,9 @@ from skimage.transform import resize
 import matplotlib.pyplot as plt
 from ..utils.inverse_sensor_model import inverse_sensor_model
 from ..utils.astar import astar
+from scipy.ndimage import distance_transform_edt
 import random
-import heapq
+from heapq import heappush, heappop
 from ..config import ROBOT_CONFIG, REWARD_CONFIG
 
 class Robot:
@@ -54,11 +55,16 @@ class Robot:
         self.robot_size = ROBOT_CONFIG['robot_size']
         self.local_size = ROBOT_CONFIG['local_size']
         
+        # 膨胀参数
+        self.inflation_radius = self.robot_size * 3  # 膨胀半径为机器人尺寸的1.5倍
+        self.lethal_cost = 100  # 致命障碍物代价
+        self.decay_factor = 3  # 代价衰减因子
+        
         # 状态记录
         self.old_position = np.zeros([2])
         self.old_op_map = np.empty([0])
         self.current_target_frontier = None
-        self.is_moving_to_target = False  # 新增:標記是否正在移動到目標
+        self.is_moving_to_target = False
         self.steps = 0
         
         # 地图点和自由空间
@@ -398,6 +404,23 @@ class Robot:
                 path_y = path[1, :]
                 plt.plot(path_x, path_y, 'g--', linewidth=2, 
                         alpha=0.8, label='Planned Path')
+                
+                # 计算并绘制移动方向
+                if len(path_x) > 1:
+                    direction_x = path_x[1] - self.robot_position[0]
+                    direction_y = path_y[1] - self.robot_position[1]
+                    
+                    # 归一化方向向量
+                    magnitude = np.sqrt(direction_x**2 + direction_y**2)
+                    if magnitude > 0:
+                        direction_x = direction_x / magnitude * 20  # 缩放箭头长度
+                        direction_y = direction_y / magnitude * 20
+                        
+                        # 绘制移动方向箭头
+                        plt.arrow(self.robot_position[0], self.robot_position[1],
+                                direction_x, direction_y,
+                                head_width=3, head_length=3, fc='yellow', ec='yellow',
+                                label='Movement Direction', zorder=5)
         
         # 绘制机器人当前位置和起始位置
         plt.plot(self.robot_position[0], self.robot_position[1], 
@@ -411,6 +434,168 @@ class Robot:
         plt.title(f'Exploration Progress: {explored_ratio:.1%}')
         
         plt.pause(0.01)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    def inflate_map(self, binary_map):
+        """
+        膨胀地图以创建代价地图
+        
+        Args:
+            binary_map: 二值地图 (0: 自由空间, 1: 障碍物)
+            
+        Returns:
+            cost_map: 带有膨胀障碍物的代价地图
+        """
+        # 创建障碍物地图
+        obstacle_map = (binary_map == 1)
+        
+        # 计算距离变换
+        distances = distance_transform_edt(~obstacle_map)
+        
+        # 创建代价地图
+        cost_map = np.zeros_like(distances)
+        
+        # 设置致命障碍物
+        cost_map[obstacle_map] = self.lethal_cost
+        
+        # 计算膨胀代价
+        inflation_mask = (distances > 0) & (distances <= self.inflation_radius)
+        cost_map[inflation_mask] = self.lethal_cost * np.exp(
+            -self.decay_factor * distances[inflation_mask] / self.inflation_radius
+        )
+        
+        return cost_map
+
+    def astar_with_inflation(self, start, goal, op_map):
+        """
+        考虑膨胀的A*路径规划
+        
+        Args:
+            start: 起点 (x, y)
+            goal: 终点 (x, y)
+            op_map: 观测地图
+            
+        Returns:
+            path: 路径点列表，如果没找到则返回None
+        """
+        # 创建二值地图
+        binary_map = (op_map == 1).astype(int)
+        
+        # 获取膨胀后的代价地图
+        cost_map = self.inflate_map(binary_map)
+        
+        # 检查起点和终点是否在安全区域
+        if (cost_map[int(start[1]), int(start[0])] >= self.lethal_cost or
+            cost_map[int(goal[1]), int(goal[0])] >= self.lethal_cost):
+            return None
+            
+        # 初始化开放和关闭列表
+        start = tuple(start)
+        goal = tuple(goal)
+        frontier = []
+        heappush(frontier, (0, start))  # 使用导入的heappush而不是heapq.heappush
+        came_from = {start: None}
+        cost_so_far = {start: 0}
+        
+        while frontier:
+            current = heappop(frontier)[1]  # 使用导入的heappop而不是heapq.heappop
+            
+            if current == goal:
+                # 重建路径
+                path = []
+                while current:
+                    path.append(current)
+                    current = came_from[current]
+                path.reverse()
+                return np.array(path).T
+                
+            for next_pos in self.get_neighbors(current, cost_map):
+                # 计算新代价，包括膨胀代价
+                movement_cost = 1.0
+                if abs(next_pos[0] - current[0]) + abs(next_pos[1] - current[1]) == 2:
+                    movement_cost = ROBOT_CONFIG['diagonal_weight']
+                    
+                inflation_cost = cost_map[next_pos[1], next_pos[0]] / self.lethal_cost
+                new_cost = cost_so_far[current] + movement_cost * (1 + inflation_cost)
+                
+                if next_pos not in cost_so_far or new_cost < cost_so_far[next_pos]:
+                    cost_so_far[next_pos] = new_cost
+                    priority = new_cost + self.heuristic(next_pos, goal) * (1 + inflation_cost)
+                    heappush(frontier, (priority, next_pos))  # 使用导入的heappush
+                    came_from[next_pos] = current
+                    
+        return None
+
+
+
+
+
+    def get_neighbors(self, pos, cost_map):
+        """
+        获取当前位置的有效邻居节点
+        
+        Args:
+            pos: 当前位置 (x, y)
+            cost_map: 包含障碍物和膨胀区域的代价地图
+            
+        Returns:
+            neighbors: 有效的邻居位置列表
+        """
+        x, y = pos
+        neighbors = []
+        
+        # 8个方向的邻居：上下左右和对角线
+        directions = [
+            (0, 1),   # 右
+            (1, 0),   # 下
+            (0, -1),  # 左
+            (-1, 0),  # 上
+            (1, 1),   # 右下
+            (-1, 1),  # 右上
+            (1, -1),  # 左下
+            (-1, -1)  # 左上
+        ]
+        
+        for dx, dy in directions:
+            new_x, new_y = x + dx, y + dy
+            
+            # 检查边界
+            if not (0 <= new_x < self.map_size[1] and 0 <= new_y < self.map_size[0]):
+                continue
+                
+            # 检查是否在安全区域（代价小于致命代价）
+            if cost_map[new_y, new_x] < self.lethal_cost:
+                neighbors.append((new_x, new_y))
+                
+        return neighbors
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def astar(self, op_map, start, goal):
         """A*路径规划"""
@@ -475,16 +660,16 @@ class Robot:
         return D * max(dx, dy) + (D2 - D) * min(dx, dy)
 
     def astar_path(self, op_map, start, goal, safety_distance=None):
-        """获取A*路径"""
+        """获取考虑膨胀的A*路径"""
         if safety_distance is None:
             safety_distance = ROBOT_CONFIG['safety_distance']
             
-        path = self.astar(op_map, start, goal)
+        path = self.astar_with_inflation(start, goal, op_map)
         if path is None:
             return None
             
-        path = np.array(path).T
         return self.simplify_path(path, ROBOT_CONFIG['path_simplification'])
+
 
     def simplify_path(self, path, threshold):
         """路径简化"""
