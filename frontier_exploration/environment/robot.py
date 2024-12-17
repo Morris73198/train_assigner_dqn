@@ -56,7 +56,7 @@ class Robot:
         self.local_size = ROBOT_CONFIG['local_size']
         
         # 膨胀参数
-        self.inflation_radius = self.robot_size * 3  # 膨胀半径为机器人尺寸的1.5倍
+        self.inflation_radius = self.robot_size * 10  # 膨胀半径为机器人尺寸的1.5倍
         self.lethal_cost = 100  # 致命障碍物代价
         self.decay_factor = 3  # 代价衰减因子
         
@@ -98,7 +98,7 @@ class Robot:
         return state
 
     def move_to_frontier(self, target_frontier):
-        """移動到指定的frontier點"""
+        """改進的移動到frontier方法"""
         # 如果正在執行移動且目標點沒有改變,繼續使用當前目標
         if self.is_moving_to_target and np.array_equal(self.current_target_frontier, target_frontier):
             target_frontier = self.current_target_frontier
@@ -116,33 +116,75 @@ class Robot:
         )
         
         if path is None:
-            self.is_moving_to_target = False  # 重置移動狀態
+            self.is_moving_to_target = False
             return self.get_observation(), -1, True
             
+        # 路徑平滑化
         path = self.simplify_path(path, ROBOT_CONFIG['path_simplification'])
         
         total_reward = 0
         done = False
         next_state = None
         
+        # 改進的路徑跟隨邏輯
         path_points = path.T
-        step_size = ROBOT_CONFIG['max_frontier_skip']
+        current_path_index = 0
+        look_ahead_distance = ROBOT_CONFIG['movement_step'] * 1.5  # 前瞻距離
         
-        for i in range(0, len(path_points), step_size):
-            target_point = path_points[min(i + step_size - 1, len(path_points) - 1)]
-            move_vector = target_point - self.robot_position
+        while current_path_index < len(path_points):
+            # 找到前瞻點
+            look_ahead_point = None
+            accumulated_distance = 0
             
-            dist = np.linalg.norm(move_vector)
-            if dist > ROBOT_CONFIG['movement_step']:
-                move_vector = move_vector * (ROBOT_CONFIG['movement_step'] / dist)
+            for i in range(current_path_index, len(path_points)):
+                if i == current_path_index:
+                    continue
+                point_distance = np.linalg.norm(
+                    path_points[i] - path_points[i-1]
+                )
+                accumulated_distance += point_distance
                 
+                if accumulated_distance >= look_ahead_distance:
+                    look_ahead_point = path_points[i]
+                    break
+            
+            if look_ahead_point is None:
+                look_ahead_point = path_points[-1]
+            
+            # 計算移動向量
+            move_vector = look_ahead_point - self.robot_position
+            dist = np.linalg.norm(move_vector)
+            
+            # 根據距離動態調整步長
+            if dist > ROBOT_CONFIG['movement_step']:
+                # 保持固定步長
+                move_vector = move_vector * (ROBOT_CONFIG['movement_step'] / dist)
+            else:
+                # 接近目標時使用較小步長
+                move_vector = move_vector * 0.5
+            
+            # 執行移動
             next_state, reward, step_done = self.execute_movement(move_vector)
             total_reward += reward
             
             if step_done:
                 done = True
                 break
-                
+            
+            # 更新當前路徑索引
+            current_position = self.robot_position
+            min_distance = float('inf')
+            new_index = current_path_index
+            
+            # 找到最近的路徑點作為新的索引
+            for i in range(current_path_index, len(path_points)):
+                distance = np.linalg.norm(path_points[i] - current_position)
+                if distance < min_distance:
+                    min_distance = distance
+                    new_index = i
+            
+            current_path_index = new_index
+            
             # 檢查是否到達目標點附近
             dist_to_target = np.linalg.norm(self.robot_position - target_frontier)
             if dist_to_target < ROBOT_CONFIG['movement_step']:

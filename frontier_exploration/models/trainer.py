@@ -3,9 +3,12 @@ import random
 from collections import deque
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import os
+import json
+from frontier_exploration.config import MODEL_DIR
 
 class FrontierTrainer:
-    def __init__(self, model, robot, memory_size=10000, batch_size=32, gamma=0.99):
+    def __init__(self, model, robot, memory_size=10000, batch_size=16, gamma=0.99):
         """
         初始化训练器
         
@@ -142,60 +145,81 @@ class FrontierTrainer:
         
         return loss
     
-    def train(self, episodes, steps_per_episode=1000, target_update_freq=10):
-        """训练过程"""
+    def train(self, episodes=1000000, target_update_freq=10, save_freq=10):
+        """
+        训练过程
+        
+        Args:
+            episodes: 训练轮数(地图数)
+            target_update_freq: 目标网络更新频率
+            save_freq: 保存检查点频率
+        """
         for episode in range(episodes):
-            state = self.robot.begin()
+            state = self.robot.begin()  # 开始新地图
             total_reward = 0
-            step = 0
+            steps = 0
             episode_losses = []
             
-            while step < steps_per_episode:
+            # 在这个地图上训练直到完成为止
+            while not self.robot.check_done():  # 使用check_done检查地图是否真正探索完成
                 frontiers = self.robot.get_frontiers()
+                if len(frontiers) == 0:
+                    break  # 无可用的frontier点
+                    
                 action = self.choose_action(state, frontiers)
-                
                 selected_frontier = frontiers[action]
-                next_state, reward, movement_done = self.robot.move_to_frontier(selected_frontier)
+                
+                # 移动到选定的frontier
+                next_state, reward, move_done = self.robot.move_to_frontier(selected_frontier)
                 next_frontiers = self.robot.get_frontiers()
                 
-                # 检查是否真正需要结束episode
-                done = self.robot.check_done() or step >= steps_per_episode
-                
-                # 存储经验
-                self.remember(state, frontiers, action, reward, next_state, next_frontiers, done)
-                
-                # 训练
+                # 存储经验并训练
+                self.remember(state, frontiers, action, reward, next_state, next_frontiers, move_done)
                 loss = self.train_step()
-                episode_losses.append(loss)
+                if loss is not None:
+                    episode_losses.append(loss)
                 
                 total_reward += reward
-                step += 1
+                steps += 1
                 state = next_state
                 
-                if done:
-                    state = self.robot.reset()
-                    break
+                # 如果这次移动失败了，继续尝试其他frontier
+                if move_done and not self.robot.check_done():
+                    continue
             
-            # 更新目标网络
-            if episode % target_update_freq == 0:
-                self.model.update_target_model()
-                
-            # 记录训练历史
+            # 更新训练历史
             self.training_history['episode_rewards'].append(total_reward)
-            self.training_history['episode_lengths'].append(step)
+            self.training_history['episode_lengths'].append(steps)
             self.training_history['exploration_rates'].append(self.epsilon)
             self.training_history['losses'].append(np.mean(episode_losses) if episode_losses else 0)
             
+            # 更新目标网络
+            if (episode + 1) % target_update_freq == 0:
+                self.model.update_target_model()
+            
+            # 保存检查点
+            if (episode + 1) % save_freq == 0:
+                self.save_checkpoint(episode + 1)
+            
             # 打印训练信息
-            print(f"Episode: {episode+1}/{episodes}")
-            print(f"Steps: {step}, Total Reward: {total_reward:.2f}")
+            exploration_progress = self.robot.get_exploration_progress()
+            print(f"\nEpisode {episode + 1}/{episodes} (Map {self.robot.li_map})")
+            print(f"Steps: {steps}, Total Reward: {total_reward:.2f}")
             print(f"Epsilon: {self.epsilon:.3f}")
             print(f"Average Loss: {self.training_history['losses'][-1]:.6f}")
-            print("------------------------")
+            print(f"Exploration Progress: {exploration_progress:.1%}")
             
-            # 每100个episode绘制训练进度
-            if (episode + 1) % 100 == 0:
-                self.plot_training_progress()
+            if exploration_progress >= self.robot.finish_percent:
+                print("Map fully explored!")
+            else:
+                print("Map exploration incomplete")
+            print("-" * 50)
+            
+            # 准备下一个地图
+            state = self.robot.reset()
+        
+        # 训练结束后保存最终模型
+        self.save_checkpoint(episodes)
     
     def plot_training_progress(self):
         """
@@ -253,3 +277,31 @@ class FrontierTrainer:
             'exploration_rates': data['exploration_rates'].tolist(),
             'losses': data['losses'].tolist()
         }
+        
+    def save_checkpoint(self, episode):
+        """
+        保存檢查點
+        
+        Args:
+            episode: 當前訓練輪數
+        """
+        # 用零填充確保文件名排序正確
+        ep_str = str(episode).zfill(6)
+        
+        # 保存模型
+        model_path = os.path.join(MODEL_DIR, f'frontier_model_ep{ep_str}.h5')
+        self.model.save(model_path)
+        
+        # 保存訓練歷史
+        history_path = os.path.join(MODEL_DIR, f'training_history_ep{ep_str}.json')
+        history_to_save = {
+            'episode_rewards': [float(x) for x in self.training_history['episode_rewards']],
+            'episode_lengths': [int(x) for x in self.training_history['episode_lengths']],
+            'exploration_rates': [float(x) for x in self.training_history['exploration_rates']],
+            'losses': [float(x) if x is not None else 0.0 for x in self.training_history['losses']]
+        }
+        
+        with open(history_path, 'w') as f:
+            json.dump(history_to_save, f, indent=4)
+        
+        print(f"Saved checkpoint at episode {episode}")

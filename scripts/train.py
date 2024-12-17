@@ -26,9 +26,9 @@ def main():
     
     # 开始训练
     trainer.train(
-        episodes=TRAIN_CONFIG['episodes'],
-        steps_per_episode=TRAIN_CONFIG['steps_per_episode'],
-        target_update_freq=TRAIN_CONFIG['target_update_freq']
+        episodes=1000000,
+        target_update_freq=10,
+        save_freq=1
     )
     
     # 保存模型
