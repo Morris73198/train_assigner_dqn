@@ -27,8 +27,8 @@ def main():
     # train
     trainer.train(
         episodes=1000000,
-        target_update_freq=10,
-        save_freq=1
+        target_update_freq=20,
+        save_freq=20,
     )
     
     # save
