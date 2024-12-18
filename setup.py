@@ -19,7 +19,7 @@ ext_modules = [
         include_dirs=[
             get_pybind_include(),
             get_pybind_include(user=True),
-            "/usr/include/eigen3"  # 添加 Eigen 库路径
+            "/usr/include/eigen3"  # 添加 Eigen 
         ],
         language='c++'
     ),
@@ -29,13 +29,13 @@ ext_modules = [
         include_dirs=[
             get_pybind_include(),
             get_pybind_include(user=True),
-            "/usr/include/eigen3"  # 添加 Eigen 库路径
+            "/usr/include/eigen3"  # 添加 Eigen 
         ],
         language='c++'
     )
 ]
 
-# 添加 C++11 支持
+# 添加 C++11
 class BuildExt(build_ext):
     def build_extensions(self):
         ct = self.compiler.compiler_type

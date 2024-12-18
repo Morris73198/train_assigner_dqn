@@ -6,7 +6,6 @@ from skimage import io
 from skimage.transform import resize
 import matplotlib.pyplot as plt
 from ..utils.inverse_sensor_model import inverse_sensor_model
-from ..utils.astar import astar
 from scipy.ndimage import distance_transform_edt
 import random
 from heapq import heappush, heappop
@@ -14,11 +13,11 @@ from ..config import ROBOT_CONFIG, REWARD_CONFIG
 
 class Robot:
     def __init__(self, index_map, train, plot):
-        """初始化机器人环境"""
+        """初始化機器人環境"""
         self.mode = train
         self.plot = plot
         
-        # 设置路径
+        
         current_dir = os.path.dirname(os.path.abspath(__file__))
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
         
@@ -27,7 +26,7 @@ class Robot:
         else:
             self.map_dir = os.path.join(base_dir, 'robot_rl/data', 'DungeonMaps', 'test')
             
-        # 确保目录存在
+    
         os.makedirs(self.map_dir, exist_ok=True)
         
         self.map_list = os.listdir(self.map_dir)
@@ -40,7 +39,7 @@ class Robot:
             
         self.li_map = index_map
         
-        # 初始化地图和机器人位置
+        # 初始化地圖和機器人位置
         self.global_map, self.robot_position = self.map_setup(
             os.path.join(self.map_dir, self.map_list[self.li_map]))
         self.robot_position = self.robot_position.astype(np.int64)
@@ -48,30 +47,30 @@ class Robot:
         self.op_map = np.ones(self.global_map.shape) * 127
         self.map_size = np.shape(self.global_map)
         
-        # 从配置文件加载参数
+        # 加载參數
         self.movement_step = ROBOT_CONFIG['movement_step']
         self.finish_percent = ROBOT_CONFIG['finish_percent']
         self.sensor_range = ROBOT_CONFIG['sensor_range']
         self.robot_size = ROBOT_CONFIG['robot_size']
         self.local_size = ROBOT_CONFIG['local_size']
         
-        # 膨胀参数
+        # 膨脹參數
         self.inflation_radius = self.robot_size * 10  # 膨胀半径为机器人尺寸的1.5倍
         self.lethal_cost = 100  # 致命障碍物代价
         self.decay_factor = 3  # 代价衰减因子
         
-        # 状态记录
+        
         self.old_position = np.zeros([2])
         self.old_op_map = np.empty([0])
         self.current_target_frontier = None
         self.is_moving_to_target = False
         self.steps = 0
         
-        # 地图点和自由空间
+        # map and free space
         self.t = self.map_points(self.global_map)
         self.free_tree = spatial.KDTree(self.free_points(self.global_map).tolist())
         
-        # 可视化相关
+        # vizsualize
         if self.plot:
             self.xPoint = np.array([self.robot_position[0]])
             self.yPoint = np.array([self.robot_position[1]])
@@ -79,7 +78,7 @@ class Robot:
             self.y2frontier = np.empty([0])
 
     def begin(self):
-        """初始化并返回初始状态"""
+        """初始化並返回初始狀態"""
         self.op_map = self.inverse_sensor(
             self.robot_position, self.sensor_range, self.op_map, self.global_map)
             
@@ -119,7 +118,7 @@ class Robot:
             self.is_moving_to_target = False
             return self.get_observation(), -1, True
             
-        # 路徑平滑化
+        
         path = self.simplify_path(path, ROBOT_CONFIG['path_simplification'])
         
         total_reward = 0
@@ -199,7 +198,7 @@ class Robot:
         return next_state, total_reward, done
 
     def execute_movement(self, move_vector):
-        """执行移动"""
+        """移動"""
         old_position = self.robot_position.copy()
         old_op_map = self.op_map.copy()
         
@@ -207,11 +206,11 @@ class Robot:
         new_position = self.robot_position + move_vector
         self.robot_position = np.round(new_position).astype(np.int64)
         
-        # 边界检查
+        # 邊界檢查
         self.robot_position[0] = np.clip(self.robot_position[0], 0, self.map_size[1]-1)
         self.robot_position[1] = np.clip(self.robot_position[1], 0, self.map_size[0]-1)
         
-        # 碰撞检测
+        # 碰撞檢查
         collision_points, collision_index = self.fast_collision_check(
             old_position, self.robot_position, self.map_size, self.global_map)
         
@@ -236,20 +235,20 @@ class Robot:
         return self.get_observation(), reward, done
 
     def calculate_fast_reward(self, old_op_map, new_op_map, move_vector):
-        """计算奖励"""
-        # 探索奖励
+        """計算獎勵"""
+        # 探索獎勵
         explored_diff = float(
             np.sum(new_op_map == 255) - np.sum(old_op_map == 255)
         ) / 14000 * REWARD_CONFIG['exploration_weight']
         
-        # 移动惩罚
+        # 移動懲罰
         movement_cost = REWARD_CONFIG['movement_penalty'] * np.linalg.norm(move_vector)
         
-        # 目标导向奖励
+        # 離目標點越近獎勵越高（之後可能會拿掉）
         if self.current_target_frontier is not None:
             distance_to_target = np.linalg.norm(
                 self.current_target_frontier - self.robot_position)
-            progress_reward = -0.01 * distance_to_target
+            progress_reward = -0.0001 * distance_to_target
         else:
             progress_reward = 0
         
@@ -257,7 +256,7 @@ class Robot:
         return np.clip(total_reward, -1, 1)
 
     def map_setup(self, location):
-        """设置地图和机器人初始位置"""
+        """設置地圖和機器人初始位置"""
         global_map = (io.imread(location, 1) * 255).astype(int)
         robot_location = np.nonzero(global_map == 208)
         robot_location = np.array([np.array(robot_location)[1, 0], 
@@ -267,7 +266,7 @@ class Robot:
         return global_map, robot_location
 
     def map_points(self, map_glo):
-        """生成地图点"""
+        """生成地圖"""
         map_x = map_glo.shape[1]
         map_y = map_glo.shape[0]
         x = np.linspace(0, map_x - 1, map_x)
@@ -277,7 +276,7 @@ class Robot:
         return points
 
     def local_map(self, robot_location, map_glo, map_size, local_size):
-        """获取局部地图"""
+        """獲取局部地圖"""
         minX = int(robot_location[0] - local_size)
         maxX = int(robot_location[0] + local_size)
         minY = int(robot_location[1] - local_size)
@@ -291,45 +290,45 @@ class Robot:
         return map_glo[minY:maxY, minX:maxX]
 
     def free_points(self, op_map):
-        """获取自由空间点"""
+        
         index = np.where(op_map == 255)
         return np.asarray([index[1], index[0]]).T
 
     def nearest_free(self, tree, point):
-        """找到最近的自由点"""
+       
         pts = np.atleast_2d(point)
         index = tuple(tree.query(pts)[1])
         return tree.data[index]
 
     def robot_model(self, position, robot_size, points, map_glo):
-        """机器人模型"""
+        
         map_copy = map_glo.copy()
         robot_points = self.range_search(position, robot_size, points)
         for point in robot_points:
-            y, x = point[::-1].astype(int)
+            y, x = point[::-1].astype(int) #(x,y)轉（y,x）
             if 0 <= y < map_copy.shape[0] and 0 <= x < map_copy.shape[1]:
-                map_copy[y, x] = 76
+                map_copy[y, x] = 76 # 機器人位置標記為 76
         return map_copy
 
     def range_search(self, position, r, points):
-        """范围搜索"""
+        
         diff = points - position
         dist_sq = np.sum(diff * diff, axis=1)
         return points[dist_sq <= r * r]
 
     def fast_collision_check(self, start_point, end_point, map_size, map_glo):
-        """简化的碰撞检测"""
+        
         start = np.round(start_point).astype(int)
         end = np.round(end_point).astype(int)
         
-        # 检查终点是否有效
+        
         if not (0 <= end[0] < map_size[1] and 0 <= end[1] < map_size[0]):
             return np.array([end]).reshape(1, 2), True
             
         if map_glo[end[1], end[0]] == 1:
             return np.array([end]).reshape(1, 2), True
         
-        # 简化的路径检查
+     
         dx = end[0] - start[0]
         dy = end[1] - start[1]
         steps = max(abs(dx), abs(dy))
@@ -340,7 +339,7 @@ class Robot:
         x_step = dx / steps
         y_step = dy / steps
         
-        # 只检查几个关键点
+    
         check_points = np.linspace(0, steps, min(5, steps + 1))
         for t in check_points:
             x = int(start[0] + x_step * t)
@@ -355,20 +354,18 @@ class Robot:
         return np.array([[-1, -1]]).reshape(1, 2), False
 
     def inverse_sensor(self, robot_position, sensor_range, op_map, map_glo):
-        """逆向传感器模型"""
+       
         return inverse_sensor_model(
             int(robot_position[0]), int(robot_position[1]), 
             sensor_range, op_map, map_glo)
 
     def frontier(self, op_map, map_size, points):
-        """获取frontier点"""
+       
         y_len, x_len = map_size
         mapping = (op_map == 127).astype(int)
         
-        # 添加边界填充
         mapping = np.pad(mapping, ((1,1), (1,1)), 'constant')
         
-        # 计算邻域和
         fro_map = (
             mapping[2:, 1:x_len+1] +    # 下
             mapping[:y_len, 1:x_len+1] + # 上
@@ -380,18 +377,15 @@ class Robot:
             mapping[:y_len, :x_len]      # 左上
         )
         
-        # 找到满足条件的点
         free_space = op_map.ravel(order='F') == 255
         frontier_condition = (1 < fro_map.ravel(order='F')) & (fro_map.ravel(order='F') < 8)
         valid_points = points[np.where(free_space & frontier_condition)[0]]
         
-        # 优化：只返回间隔足够大的frontier点
         if len(valid_points) > 0:
             selected_points = [valid_points[0]]
             min_dist = ROBOT_CONFIG['min_frontier_dist']
             
             for point in valid_points[1:]:
-                # 检查与已选点的距离
                 distances = [np.linalg.norm(point - p) for p in selected_points]
                 if min(distances) > min_dist:
                     selected_points.append(point)
@@ -401,8 +395,6 @@ class Robot:
         return valid_points.astype(int)
 
     def get_frontiers(self):
-        """獲取所有可用的frontiers點"""
-        # 如果正在移動到目標,只返回當前目標
         if self.is_moving_to_target and self.current_target_frontier is not None:
             return np.array([self.current_target_frontier])
             
@@ -410,27 +402,22 @@ class Robot:
         if len(frontiers) == 0:
             return np.zeros((0, 2))
             
-        # 按照到機器人的距離排序
         distances = np.linalg.norm(frontiers - self.robot_position, axis=1)
         sorted_indices = np.argsort(distances)
         return frontiers[sorted_indices]
 
     def plot_env(self):
-        """绘制环境状态可视化"""
         plt.cla()
         plt.imshow(self.op_map, cmap='gray')
         plt.axis((0, self.map_size[1], self.map_size[0], 0))
         
-        # 绘制机器人路径
         plt.plot(self.xPoint, self.yPoint, 'b-', linewidth=2, label='Robot Path')
         
-        # 绘制所有frontiers
         frontiers = self.get_frontiers()
         if len(frontiers) > 0:
             plt.scatter(frontiers[:, 0], frontiers[:, 1], 
                     c='red', marker='*', s=100, label='Frontiers')
         
-        # 绘制当前目标frontier和路径
         if self.current_target_frontier is not None:
             plt.plot(self.current_target_frontier[0], self.current_target_frontier[1], 
                     'go', markersize=10, label='Target Frontier')
@@ -447,30 +434,25 @@ class Robot:
                 plt.plot(path_x, path_y, 'g--', linewidth=2, 
                         alpha=0.8, label='Planned Path')
                 
-                # 计算并绘制移动方向
                 if len(path_x) > 1:
                     direction_x = path_x[1] - self.robot_position[0]
                     direction_y = path_y[1] - self.robot_position[1]
                     
-                    # 归一化方向向量
                     magnitude = np.sqrt(direction_x**2 + direction_y**2)
                     if magnitude > 0:
-                        direction_x = direction_x / magnitude * 20  # 缩放箭头长度
+                        direction_x = direction_x / magnitude * 20  
                         direction_y = direction_y / magnitude * 20
                         
-                        # 绘制移动方向箭头
                         plt.arrow(self.robot_position[0], self.robot_position[1],
                                 direction_x, direction_y,
                                 head_width=3, head_length=3, fc='yellow', ec='yellow',
                                 label='Movement Direction', zorder=5)
         
-        # 绘制机器人当前位置和起始位置
         plt.plot(self.robot_position[0], self.robot_position[1], 
                 'mo', markersize=8, label='Current Position')
         plt.plot(self.xPoint[0], self.yPoint[0], 
                 'co', markersize=8, label='Start Position')
         
-        # 添加图例和探索进度
         plt.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
         explored_ratio = np.sum(self.op_map == 255) / np.sum(self.global_map == 255)
         plt.title(f'Exploration Progress: {explored_ratio:.1%}')
@@ -809,11 +791,14 @@ class Robot:
         step_map = self.robot_model(
             self.robot_position, self.robot_size, self.t, self.op_map)
             
-        map_local = self.local_map(
-            self.robot_position, step_map, self.map_size, 
-            self.sensor_range + self.local_size)
-            
-        resized_map = resize(map_local, (84, 84))
+        # 神經網路輸入只以機器人週邊為範圍    
+        # map_local = self.local_map(
+        #     self.robot_position, step_map, self.map_size, 
+        #     self.sensor_range + self.local_size)
+        
+        # 3. 調整大小為神經網絡輸入大小
+        resized_map = resize(step_map, (84, 84))
+        # resized_map = resize(map_local, (84, 84))
         return np.expand_dims(resized_map, axis=-1)
 
     def get_exploration_progress(self):

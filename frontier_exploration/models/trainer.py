@@ -45,20 +45,20 @@ class FrontierTrainer:
         self.memory.append((state, frontiers, action, reward, next_state, next_frontiers, done))
     
     def pad_frontiers(self, frontiers):
-        """
-        将frontiers填充到固定长度
+        """將frontiers填充到固定長度，並進行座標標準化"""
+        padded = np.zeros((self.model.max_frontiers, 2))  # 還是固定50x2的零矩陣
         
-        Args:
-            frontiers: 原始frontiers列表
-            
-        Returns:
-            填充后的frontiers数组
-        """
-        padded = np.zeros((self.model.max_frontiers, 2))
         if len(frontiers) > 0:
+            # 1. 先標準化座標
+            normalized_frontiers = frontiers.copy()
+            normalized_frontiers[:, 0] = frontiers[:, 0] / self.map_size[1]  # x座標除以地圖寬度
+            normalized_frontiers[:, 1] = frontiers[:, 1] / self.map_size[0]  # y座標除以地圖高度
+            
+            # 2. 然後做填充
             n_frontiers = min(len(frontiers), self.model.max_frontiers)
-            padded[:n_frontiers] = frontiers[:n_frontiers]
-        return padded
+            padded[:n_frontiers] = normalized_frontiers[:n_frontiers]
+        
+        return padded  # 返回標準化後的frontier座標
     
     def choose_action(self, state, frontiers):
         """选择动作（frontier）"""
@@ -74,7 +74,7 @@ class FrontierTrainer:
         
         # epsilon-greedy策略
         if np.random.random() < self.epsilon:
-            return np.random.randint(min(20, len(frontiers)))
+            return np.random.randint(min(50, len(frontiers)))
         
         # 使用模型预测
         state_batch = np.expand_dims(state, 0)

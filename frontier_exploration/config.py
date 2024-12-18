@@ -51,7 +51,7 @@ ROBOT_CONFIG = {
 REWARD_CONFIG = {
     'exploration_weight': 2.0,     # 探索奖励权重
     'movement_penalty': -0.005,    # 移动惩罚
-    'collision_penalty': -0.5,     # 碰撞惩罚
-    'target_completion_reward': 5.0, # 到达目标奖励
+    'collision_penalty': -0.005,     # 碰撞惩罚
+    # 'target_completion_reward': 5.0, 
     'completion_reward': 10.0       # 完成探索奖励
 }
