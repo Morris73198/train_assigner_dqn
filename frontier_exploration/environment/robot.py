@@ -85,10 +85,10 @@ class Robot:
         step_map = self.robot_model(
             self.robot_position, self.robot_size, self.t, self.op_map)
             
-        map_local = self.local_map(
-            self.robot_position, step_map, self.map_size, self.sensor_range + self.local_size)
+        # map_local = self.local_map(
+        #     self.robot_position, step_map, self.map_size, self.sensor_range + self.local_size)
         
-        resized_map = resize(map_local, (84, 84))
+        resized_map = resize(step_map, (84, 84))
         state = np.expand_dims(resized_map, axis=-1)
         
         if self.plot:
