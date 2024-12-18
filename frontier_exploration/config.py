@@ -1,57 +1,57 @@
 import os
 
-# 路径配置
+# 路徑配置
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 MODEL_DIR = os.path.join(BASE_DIR, 'saved_models')
 
 # 模型配置
 MODEL_CONFIG = {
-    'input_shape': (84, 84, 1),
-    'max_frontiers': 200,  # 这个值要和动作空间大小匹配
-    'memory_size': 10000,
-    'batch_size': 16,
-    'gamma': 0.99,
-    'epsilon_min': 0.1,
-    'epsilon_decay': 0.995
+    'input_shape': (84, 84, 1),      # 輸入影像的形狀
+    'max_frontiers': 50,            # 最大前沿點數量，需與動作空間大小匹配
+    'memory_size': 10000,            # 經驗回放緩衝區大小
+    'batch_size': 16,                # 訓練批次大小
+    'gamma': 0.99,                   # 獎勵折扣因子
+    'epsilon_min': 0.1,              # 最小探索率
+    'epsilon_decay': 0.995           # 探索率衰減係數
 }
 
-# 训练配置
+# 訓練配置
 TRAIN_CONFIG = {
-    'episodes': 1000000,
-    'steps_per_episode': 5000,
-    'target_update_freq': 10,
-    'save_freq': 100
+    'episodes': 1000000,             # 訓練總回合數
+    'steps_per_episode': 5000,       # 每回合最大步數
+    'target_update_freq': 10,        # 目標網路更新頻率
+    'save_freq': 100                 # 模型儲存頻率
 }
 
-# 机器人配置
+# 機器人配置
 ROBOT_CONFIG = {
-    # 基础配置
-    'sensor_range': 80,
-    'robot_size': 1,
-    'local_size': 40,
-    'finish_percent': 0.985,
+    # 基礎配置
+    'sensor_range': 80,              # 感測器範圍
+    'robot_size': 1,                 # 機器人尺寸
+    'local_size': 40,                # 局部地圖大小
+    'finish_percent': 0.985,         # 探索完成閾值
     
-    # 移动优化配置
-    'movement_step': 2,         # 基本移动步长
-    'max_frontier_skip': 1,      # 每次跳过的路径点数
-    'path_simplification': 0.1,  # 路径简化阈值
-    'min_frontier_dist': 30,     # 最小frontier选择距离
-    'target_reach_threshold': 5, # 目标达到阈值
+    # 移動優化配置
+    'movement_step': 2,              # 基本移動步長
+    'max_frontier_skip': 1,          # 每次跳過的路徑點數
+    'path_simplification': 0.1,      # 路徑簡化閾值
+    'min_frontier_dist': 30,         # 最小前沿點選擇距離
+    'target_reach_threshold': 5,     # 目標到達閾值
     
-    # A*寻路优化
-    'safety_distance': 10,        # 安全距离
-    'diagonal_weight': 1.2,      # 对角线移动代价
+    # A*尋路優化
+    'safety_distance': 10,           # 安全距離
+    'diagonal_weight': 1.2,          # 對角線移動代價權重
     
-    # 可视化更新频率
-    'plot_interval': 2,          # 更新间隔
+    # 視覺化更新頻率
+    'plot_interval': 2               # 繪圖更新間隔
 }
 
-# 奖励函数配置
+# 獎勵函數配置
 REWARD_CONFIG = {
-    'exploration_weight': 2.0,     # 探索奖励权重
-    'movement_penalty': -0.005,    # 移动惩罚
-    'collision_penalty': -0.005,     # 碰撞惩罚
-    # 'target_completion_reward': 5.0, 
-    'completion_reward': 10.0       # 完成探索奖励
+    'exploration_weight': 2.0,       # 探索獎勵權重
+    'movement_penalty': -0.5,   # 移動懲罰
+    'collision_penalty': -0.005,     # 碰撞懲罰
+    # 'target_completion_reward': 5.0,  # 目標完成獎勵（已註釋）
+    'completion_reward': 10.0        # 探索完成獎勵
 }

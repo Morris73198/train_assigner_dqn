@@ -6,16 +6,16 @@ from frontier_exploration.environment.robot import Robot
 from frontier_exploration.config import MODEL_CONFIG, TRAIN_CONFIG, MODEL_DIR
 
 def main():
-    # 创建模型
+    # model
     model = FrontierNetworkModel(
         input_shape=MODEL_CONFIG['input_shape'],
         max_frontiers=MODEL_CONFIG['max_frontiers']
     )
     
-    # 创建机器人环境
+    # robot env
     robot = Robot(0, train=True, plot=True)
     
-    # 创建训练器
+    # trainer
     trainer = FrontierTrainer(
         model=model,
         robot=robot,
@@ -24,14 +24,14 @@ def main():
         gamma=MODEL_CONFIG['gamma']
     )
     
-    # 开始训练
+    # train
     trainer.train(
         episodes=1000000,
         target_update_freq=10,
         save_freq=1
     )
     
-    # 保存模型
+    # save
     if not os.path.exists(MODEL_DIR):
         os.makedirs(MODEL_DIR)
     model.save(os.path.join(MODEL_DIR, 'frontier_model_final.h5'))

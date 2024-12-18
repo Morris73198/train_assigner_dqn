@@ -10,14 +10,14 @@ from frontier_exploration.config import MODEL_DIR
 class FrontierTrainer:
     def __init__(self, model, robot, memory_size=10000, batch_size=16, gamma=0.99):
         """
-        初始化训练器
+        初始化訓練器
         
-        Args:
-            model: FrontierNetworkModel实例
-            robot: Robot实例
-            memory_size: 经验回放缓冲区大小
-            batch_size: 训练批次大小
-            gamma: 奖励折扣因子
+        參數:
+            model: FrontierNetworkModel實例
+            robot: Robot實例
+            memory_size: 經驗回放緩衝區大小
+            batch_size: 訓練批次大小
+            gamma: 獎勵折扣因子
         """
         self.model = model
         self.robot = robot
@@ -25,50 +25,73 @@ class FrontierTrainer:
         self.batch_size = batch_size
         self.gamma = gamma
         
-        # 训练参数
+        self.map_size = self.robot.map_size
+
+        
+        # 訓練參數
         self.epsilon = 1.0  # 探索率
         self.epsilon_min = 0.1  # 最小探索率
-        self.epsilon_decay = 0.995  # 探索率衰减
+        self.epsilon_decay = 0.995  # 探索率衰減
         
-        # 训练历史记录
+        # 訓練歷史記錄
         self.training_history = {
-            'episode_rewards': [],
-            'episode_lengths': [],
-            'exploration_rates': [],
-            'losses': []
+            'episode_rewards': [],  # 每一輪的總獎勵
+            'episode_lengths': [],  # 每一輪的步數
+            'exploration_rates': [],  # 探索率變化
+            'losses': []  # 損失值
         }
     
     def remember(self, state, frontiers, action, reward, next_state, next_frontiers, done):
         """
-        将经验存储到回放缓冲区
+        將經驗存儲到回放緩衝區
         """
         self.memory.append((state, frontiers, action, reward, next_state, next_frontiers, done))
     
     def pad_frontiers(self, frontiers):
-        """將frontiers填充到固定長度，並進行座標標準化"""
-        padded = np.zeros((self.model.max_frontiers, 2))  # 還是固定50x2的零矩陣
+        """
+        將frontier點填充到固定長度，並進行座標標準化
+        
+        參數:
+            frontiers: 原始的frontier點座標列表
+            
+        返回:
+            標準化且填充後的frontier座標數組
+        """
+        padded = np.zeros((self.model.max_frontiers, 2))
         
         if len(frontiers) > 0:
-            # 1. 先標準化座標
-            normalized_frontiers = frontiers.copy()
-            normalized_frontiers[:, 0] = frontiers[:, 0] / self.map_size[1]  # x座標除以地圖寬度
-            normalized_frontiers[:, 1] = frontiers[:, 1] / self.map_size[0]  # y座標除以地圖高度
+            # 確保frontiers是numpy數組
+            frontiers = np.array(frontiers)
             
-            # 2. 然後做填充
+            # 標準化座標
+            normalized_frontiers = frontiers.copy()
+            normalized_frontiers[:, 0] = frontiers[:, 0] / float(self.map_size[1])  # x座標除以地圖寬度
+            normalized_frontiers[:, 1] = frontiers[:, 1] / float(self.map_size[0])  # y座標除以地圖高度
+            
+            # 填充
             n_frontiers = min(len(frontiers), self.model.max_frontiers)
             padded[:n_frontiers] = normalized_frontiers[:n_frontiers]
         
-        return padded  # 返回標準化後的frontier座標
+        return padded
     
     def choose_action(self, state, frontiers):
-        """选择动作（frontier）"""
-        # 如果没有frontiers，说明地图探索完成，需要重置环境
+        """
+        選擇動作（frontier點）
+        
+        參數:
+            state: 當前狀態
+            frontiers: 可用的frontier點列表
+            
+        返回:
+            選擇的frontier點索引
+        """
+        # 如果沒有frontier點，說明地圖探索完成，需要重置環境
         if len(frontiers) == 0:
-            # 重置环境并获取新的状态和frontiers
+            # 重置環境並獲取新的狀態和frontier點
             state = self.robot.reset()
             frontiers = self.robot.get_frontiers()
             
-            # 如果新地图也没有frontiers（极少发生），返回0
+            # 如果新地圖也沒有frontier點（極少發生），返回0
             if len(frontiers) == 0:
                 return 0
         
@@ -76,18 +99,24 @@ class FrontierTrainer:
         if np.random.random() < self.epsilon:
             return np.random.randint(min(50, len(frontiers)))
         
-        # 使用模型预测
+        # 使用模型預測
         state_batch = np.expand_dims(state, 0)
         frontiers_batch = np.expand_dims(self.pad_frontiers(frontiers), 0)
         
-        # 修正：使用正确的模型预测方法
+        # 修正：使用正確的模型預測方法
         q_values = self.model.predict(state_batch, frontiers_batch)
         
-        # 只考虑有效的frontier数量
+        # 只考慮有效的frontier數量
         valid_q = q_values[0, :len(frontiers)]
         return np.argmax(valid_q)
 
     def train_step(self):
+        """
+        執行一步訓練
+        
+        返回:
+            當前步驟的訓練損失值
+        """
         if len(self.memory) < self.batch_size:
             return 0
         
@@ -120,13 +149,18 @@ class FrontierTrainer:
         next_states = np.array(next_states)
         next_frontiers_batch = np.array(next_frontiers_batch)
         
-        # 将预测转换为NumPy数组
-        target_q = self.model.target_model({'map_input': next_states, 
-                                        'frontier_input': next_frontiers_batch}).numpy()
-        current_q = self.model.model({'map_input': states, 
-                                    'frontier_input': frontiers_batch}).numpy()
+        # 將預測轉換為NumPy數組
+        target_q = self.model.target_model({
+            'map_input': next_states, 
+            'frontier_input': next_frontiers_batch
+        }).numpy()
         
-        # 使用NumPy数组更新Q值
+        current_q = self.model.model({
+            'map_input': states, 
+            'frontier_input': frontiers_batch
+        }).numpy()
+        
+        # 使用NumPy數組更新Q值
         for i, (_, _, action, reward, _, _, done) in enumerate(batch):
             action = min(action, 19)
             if done:
@@ -134,12 +168,13 @@ class FrontierTrainer:
             else:
                 current_q[i][action] = reward + self.gamma * np.max(target_q[i])
         
-        # 训练模型
+        # 訓練模型
         loss = self.model.model.train_on_batch(
             x={'map_input': states, 'frontier_input': frontiers_batch},
             y=current_q
         )
         
+        # 更新探索率
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
         
@@ -147,33 +182,33 @@ class FrontierTrainer:
     
     def train(self, episodes=1000000, target_update_freq=10, save_freq=10):
         """
-        训练过程
+        訓練過程
         
-        Args:
-            episodes: 训练轮数(地图数)
-            target_update_freq: 目标网络更新频率
-            save_freq: 保存检查点频率
+        參數:
+            episodes: 訓練輪數(地圖數)
+            target_update_freq: 目標網絡更新頻率
+            save_freq: 保存檢查點頻率
         """
         for episode in range(episodes):
-            state = self.robot.begin()  # 开始新地图
+            state = self.robot.begin()  # 開始新地圖
             total_reward = 0
             steps = 0
             episode_losses = []
             
-            # 在这个地图上训练直到完成为止
-            while not self.robot.check_done():  # 使用check_done检查地图是否真正探索完成
+            # 在這個地圖上訓練直到完成為止
+            while not self.robot.check_done():  # 使用check_done檢查地圖是否真正探索完成
                 frontiers = self.robot.get_frontiers()
                 if len(frontiers) == 0:
-                    break  # 无可用的frontier点
+                    break  # 無可用的frontier點
                     
                 action = self.choose_action(state, frontiers)
                 selected_frontier = frontiers[action]
                 
-                # 移动到选定的frontier
+                # 移動到選定的frontier點
                 next_state, reward, move_done = self.robot.move_to_frontier(selected_frontier)
                 next_frontiers = self.robot.get_frontiers()
                 
-                # 存储经验并训练
+                # 存儲經驗並訓練
                 self.remember(state, frontiers, action, reward, next_state, next_frontiers, move_done)
                 loss = self.train_step()
                 if loss is not None:
@@ -183,74 +218,74 @@ class FrontierTrainer:
                 steps += 1
                 state = next_state
                 
-                # 如果这次移动失败了，继续尝试其他frontier
+                # 如果這次移動失敗了，繼續嘗試其他frontier點
                 if move_done and not self.robot.check_done():
                     continue
             
-            # 更新训练历史
+            # 更新訓練歷史
             self.training_history['episode_rewards'].append(total_reward)
             self.training_history['episode_lengths'].append(steps)
             self.training_history['exploration_rates'].append(self.epsilon)
             self.training_history['losses'].append(np.mean(episode_losses) if episode_losses else 0)
             
-            # 更新目标网络
+            # 更新目標網絡
             if (episode + 1) % target_update_freq == 0:
                 self.model.update_target_model()
             
-            # 保存检查点
+            # 保存檢查點
             if (episode + 1) % save_freq == 0:
                 self.save_checkpoint(episode + 1)
             
-            # 打印训练信息
+            # 列印訓練信息
             exploration_progress = self.robot.get_exploration_progress()
-            print(f"\nEpisode {episode + 1}/{episodes} (Map {self.robot.li_map})")
-            print(f"Steps: {steps}, Total Reward: {total_reward:.2f}")
-            print(f"Epsilon: {self.epsilon:.3f}")
-            print(f"Average Loss: {self.training_history['losses'][-1]:.6f}")
-            print(f"Exploration Progress: {exploration_progress:.1%}")
+            print(f"\n第 {episode + 1}/{episodes} 輪 (地圖 {self.robot.li_map})")
+            print(f"步數: {steps}, 總獎勵: {total_reward:.2f}")
+            print(f"探索率: {self.epsilon:.3f}")
+            print(f"平均損失: {self.training_history['losses'][-1]:.6f}")
+            print(f"探索進度: {exploration_progress:.1%}")
             
             if exploration_progress >= self.robot.finish_percent:
-                print("Map fully explored!")
+                print("地圖探索完成！")
             else:
-                print("Map exploration incomplete")
+                print("地圖探索未完成")
             print("-" * 50)
             
-            # 准备下一个地图
+            # 準備下一個地圖
             state = self.robot.reset()
         
-        # 训练结束后保存最终模型
+        # 訓練結束後保存最終模型
         self.save_checkpoint(episodes)
     
     def plot_training_progress(self):
         """
-        绘制训练进度图
+        繪製訓練進度圖
         """
         fig, axs = plt.subplots(4, 1, figsize=(10, 15))
         
-        # 绘制奖励
+        # 繪製獎勵
         episodes = range(1, len(self.training_history['episode_rewards']) + 1)
         axs[0].plot(episodes, self.training_history['episode_rewards'])
-        axs[0].set_title('Episode Rewards')
-        axs[0].set_xlabel('Episode')
-        axs[0].set_ylabel('Total Reward')
+        axs[0].set_title('每輪獎勵')
+        axs[0].set_xlabel('輪數')
+        axs[0].set_ylabel('總獎勵')
         
-        # 绘制步数
+        # 繪製步數
         axs[1].plot(episodes, self.training_history['episode_lengths'])
-        axs[1].set_title('Episode Lengths')
-        axs[1].set_xlabel('Episode')
-        axs[1].set_ylabel('Steps')
+        axs[1].set_title('每輪步數')
+        axs[1].set_xlabel('輪數')
+        axs[1].set_ylabel('步數')
         
-        # 绘制探索率
+        # 繪製探索率
         axs[2].plot(episodes, self.training_history['exploration_rates'])
-        axs[2].set_title('Exploration Rate')
-        axs[2].set_xlabel('Episode')
-        axs[2].set_ylabel('Epsilon')
+        axs[2].set_title('探索率')
+        axs[2].set_xlabel('輪數')
+        axs[2].set_ylabel('探索率')
         
-        # 绘制损失
+        # 繪製損失
         axs[3].plot(episodes, self.training_history['losses'])
-        axs[3].set_title('Training Loss')
-        axs[3].set_xlabel('Episode')
-        axs[3].set_ylabel('Loss')
+        axs[3].set_title('訓練損失')
+        axs[3].set_xlabel('輪數')
+        axs[3].set_ylabel('損失值')
         
         plt.tight_layout()
         plt.savefig('training_progress.png')
@@ -258,7 +293,10 @@ class FrontierTrainer:
     
     def save_training_history(self, filename='training_history.npz'):
         """
-        保存训练历史
+        保存訓練歷史
+        
+        參數:
+            filename: 保存文件名
         """
         np.savez(filename, 
                 episode_rewards=self.training_history['episode_rewards'],
@@ -268,7 +306,10 @@ class FrontierTrainer:
     
     def load_training_history(self, filename='training_history.npz'):
         """
-        加载训练历史
+        載入訓練歷史
+        
+        參數:
+            filename: 要載入的文件名
         """
         data = np.load(filename)
         self.training_history = {
@@ -282,7 +323,7 @@ class FrontierTrainer:
         """
         保存檢查點
         
-        Args:
+        參數:
             episode: 當前訓練輪數
         """
         # 用零填充確保文件名排序正確
@@ -304,4 +345,4 @@ class FrontierTrainer:
         with open(history_path, 'w') as f:
             json.dump(history_to_save, f, indent=4)
         
-        print(f"Saved checkpoint at episode {episode}")
+        print(f"已在第 {episode} 輪保存檢查點")
