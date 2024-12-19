@@ -31,6 +31,7 @@ def main():
         save_freq=20,
     )
     
+    
     # save
     if not os.path.exists(MODEL_DIR):
         os.makedirs(MODEL_DIR)

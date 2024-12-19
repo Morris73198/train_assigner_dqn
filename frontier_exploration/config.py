@@ -28,13 +28,13 @@ TRAIN_CONFIG = {
 ROBOT_CONFIG = {
     # 基礎配置
     'sensor_range': 80,              # 感測器範圍
-    'robot_size': 1,                 # 機器人尺寸
+    'robot_size': 2,                 # 機器人尺寸
     'local_size': 40,                # 局部地圖大小
     'finish_percent': 0.985,         # 探索完成閾值
     
     # 移動優化配置
     'movement_step': 2,              # 基本移動步長
-    'max_frontier_skip': 1,          # 每次跳過的路徑點數
+    'max_frontier_skip': 3,          # 每次跳過的路徑點數
     'path_simplification': 0.1,      # 路徑簡化閾值
     'min_frontier_dist': 30,         # 最小前沿點選擇距離
     'target_reach_threshold': 5,     # 目標到達閾值

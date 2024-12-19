@@ -106,7 +106,7 @@ class Robot:
             self.current_target_frontier = target_frontier.copy()
             self.is_moving_to_target = True
         
-        # 獲取路徑
+        # 初始路徑規劃
         path = self.astar_path(
             self.op_map, 
             self.robot_position.astype(np.int32),
@@ -117,7 +117,6 @@ class Robot:
         if path is None:
             self.is_moving_to_target = False
             return self.get_observation(), -1, True
-            
         
         path = self.simplify_path(path, ROBOT_CONFIG['path_simplification'])
         
@@ -129,8 +128,38 @@ class Robot:
         path_points = path.T
         current_path_index = 0
         look_ahead_distance = ROBOT_CONFIG['movement_step'] * 1.5  # 前瞻距離
+        last_check_position = self.robot_position.copy()
+        check_interval = ROBOT_CONFIG['movement_step'] * 2  # 檢查間隔
         
         while current_path_index < len(path_points):
+            # 檢查是否需要重新規劃路徑
+            current_distance = np.linalg.norm(self.robot_position - last_check_position)
+            if current_distance >= check_interval:
+                # 檢查當前路徑是否被阻擋
+                current_to_goal = path_points[current_path_index:] 
+                path_blocked = self.check_path_blocked(current_to_goal)
+                
+                if path_blocked:
+                    # 重新規劃路徑
+                    new_path = self.astar_path(
+                        self.op_map,
+                        self.robot_position.astype(np.int32),
+                        target_frontier.astype(np.int32),
+                        safety_distance=ROBOT_CONFIG['safety_distance']
+                    )
+                    
+                    if new_path is None:
+                        # 無法找到新路徑
+                        self.is_moving_to_target = False
+                        return self.get_observation(), -1, True
+                    
+                    # 更新路徑
+                    path = self.simplify_path(new_path, ROBOT_CONFIG['path_simplification'])
+                    path_points = path.T
+                    current_path_index = 0
+                
+                last_check_position = self.robot_position.copy()
+            
             # 找到前瞻點
             look_ahead_point = None
             accumulated_distance = 0
@@ -186,7 +215,7 @@ class Robot:
             
             # 檢查是否到達目標點附近
             dist_to_target = np.linalg.norm(self.robot_position - target_frontier)
-            if dist_to_target < ROBOT_CONFIG['movement_step']:
+            if dist_to_target < ROBOT_CONFIG['target_reach_threshold']:
                 done = True
                 break
         
@@ -196,6 +225,39 @@ class Robot:
             self.current_target_frontier = None
             
         return next_state, total_reward, done
+
+    def check_path_blocked(self, path_points):
+        """檢查路徑是否被阻擋
+        
+        Args:
+            path_points: nx2的數組，包含路徑點
+            
+        Returns:
+            bool: True表示路徑被阻擋，False表示路徑暢通
+        """
+        if len(path_points) < 2:
+            return False
+            
+        for i in range(len(path_points) - 1):
+            start = path_points[i]
+            end = path_points[i + 1]
+            
+            # 檢查這段路徑是否碰到障礙物
+            collision_points, collision_index = self.fast_collision_check(
+                start, 
+                end, 
+                self.map_size,
+                self.op_map  # 使用當前觀測到的地圖
+            )
+            
+            if collision_index:
+                return True
+                
+        return False
+
+
+
+
 
     def execute_movement(self, move_vector):
         """移動"""
