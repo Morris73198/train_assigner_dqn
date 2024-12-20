@@ -26,11 +26,10 @@ def main():
     
     # train
     trainer.train(
-        episodes=1000000,
-        target_update_freq=20,
-        save_freq=20,
+        episodes=TRAIN_CONFIG['episodes'],
+        target_update_freq=TRAIN_CONFIG['target_update_freq'],
+        save_freq=TRAIN_CONFIG['save_freq'],
     )
-    
     
     # save
     if not os.path.exists(MODEL_DIR):

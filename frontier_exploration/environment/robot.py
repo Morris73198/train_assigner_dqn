@@ -365,11 +365,11 @@ class Robot:
     def robot_model(self, position, robot_size, points, map_glo):
         
         map_copy = map_glo.copy()
-        robot_points = self.range_search(position, robot_size, points)
-        for point in robot_points:
-            y, x = point[::-1].astype(int) #(x,y)轉（y,x）
-            if 0 <= y < map_copy.shape[0] and 0 <= x < map_copy.shape[1]:
-                map_copy[y, x] = 76 # 機器人位置標記為 76
+        # robot_points = self.range_search(position, robot_size, points)
+        # for point in robot_points:
+        #     y, x = point[::-1].astype(int) #(x,y)轉（y,x）
+        #     if 0 <= y < map_copy.shape[0] and 0 <= x < map_copy.shape[1]:
+        #         map_copy[y, x] = 76 # 機器人位置標記為 76
         return map_copy
 
     def range_search(self, position, r, points):
@@ -885,3 +885,12 @@ class Robot:
         
         if self.plot:
             self.plot_env()
+            
+            
+            
+    def get_normalized_position(self):
+        """獲取正規化後的機器人位置"""
+        return np.array([
+            self.robot_position[0] / float(self.map_size[1]),  # x座標正規化
+            self.robot_position[1] / float(self.map_size[0])   # y座標正規化
+        ])

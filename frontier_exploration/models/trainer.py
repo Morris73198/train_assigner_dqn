@@ -41,11 +41,11 @@ class FrontierTrainer:
             'losses': []  # 損失值
         }
     
-    def remember(self, state, frontiers, action, reward, next_state, next_frontiers, done):
+    def remember(self, state, frontiers, robot_pos, action, reward, next_state, next_frontiers, next_robot_pos, done):
         """
         將經驗存儲到回放緩衝區
         """
-        self.memory.append((state, frontiers, action, reward, next_state, next_frontiers, done))
+        self.memory.append((state, frontiers, robot_pos, action, reward, next_state, next_frontiers, next_robot_pos, done))
     
     def pad_frontiers(self, frontiers):
         """
@@ -74,48 +74,33 @@ class FrontierTrainer:
         
         return padded
     
-    def choose_action(self, state, frontiers):
+    def choose_action(self, state, frontiers, robot_pos):
         """
         選擇動作（frontier點）
-        
-        參數:
-            state: 當前狀態
-            frontiers: 可用的frontier點列表
-            
-        返回:
-            選擇的frontier點索引
         """
-        # 如果沒有frontier點，說明地圖探索完成，需要重置環境
         if len(frontiers) == 0:
-            # 重置環境並獲取新的狀態和frontier點
             state = self.robot.reset()
             frontiers = self.robot.get_frontiers()
+            robot_pos = self.robot.get_normalized_position()
             
-            # 如果新地圖也沒有frontier點（極少發生），返回0
             if len(frontiers) == 0:
                 return 0
         
-        # epsilon-greedy策略
         if np.random.random() < self.epsilon:
             return np.random.randint(min(50, len(frontiers)))
         
-        # 使用模型預測
         state_batch = np.expand_dims(state, 0)
         frontiers_batch = np.expand_dims(self.pad_frontiers(frontiers), 0)
+        robot_pos_batch = np.expand_dims(robot_pos, 0)
         
-        # 修正：使用正確的模型預測方法
-        q_values = self.model.predict(state_batch, frontiers_batch)
+        q_values = self.model.predict(state_batch, frontiers_batch, robot_pos_batch)
         
-        # 只考慮有效的frontier數量
         valid_q = q_values[0, :len(frontiers)]
         return np.argmax(valid_q)
 
     def train_step(self):
         """
         執行一步訓練
-        
-        返回:
-            當前步驟的訓練損失值
         """
         if len(self.memory) < self.batch_size:
             return 0
@@ -123,18 +108,23 @@ class FrontierTrainer:
         batch = random.sample(self.memory, self.batch_size)
         states = []
         frontiers_batch = []
+        robot_pos_batch = []
         next_states = []
         next_frontiers_batch = []
+        next_robot_pos_batch = []
         
-        for state, frontiers, action, reward, next_state, next_frontiers, done in batch:
+        for state, frontiers, robot_pos, action, reward, next_state, next_frontiers, next_robot_pos, done in batch:
             if len(state.shape) == 2:
                 state = np.expand_dims(state, axis=-1)
             if len(next_state.shape) == 2:
                 next_state = np.expand_dims(next_state, axis=-1)
-                
+            
             action = min(action, 19)
-                
+            
             states.append(state)
+            robot_pos_batch.append(robot_pos)
+            next_robot_pos_batch.append(next_robot_pos)
+            
             if len(frontiers) == 0:
                 frontiers = np.zeros((1, 2))
             frontiers_batch.append(self.pad_frontiers(frontiers))
@@ -146,35 +136,39 @@ class FrontierTrainer:
         
         states = np.array(states)
         frontiers_batch = np.array(frontiers_batch)
+        robot_pos_batch = np.array(robot_pos_batch)
         next_states = np.array(next_states)
         next_frontiers_batch = np.array(next_frontiers_batch)
+        next_robot_pos_batch = np.array(next_robot_pos_batch)
         
-        # 將預測轉換為NumPy數組
-        target_q = self.model.target_model({
-            'map_input': next_states, 
-            'frontier_input': next_frontiers_batch
-        }).numpy()
+        target_q = self.model.target_model.predict({
+            'map_input': next_states,
+            'frontier_input': next_frontiers_batch,
+            'robot_pos_input': next_robot_pos_batch
+        })
         
-        current_q = self.model.model({
-            'map_input': states, 
-            'frontier_input': frontiers_batch
-        }).numpy()
+        current_q = self.model.model.predict({
+            'map_input': states,
+            'frontier_input': frontiers_batch,
+            'robot_pos_input': robot_pos_batch
+        })
         
-        # 使用NumPy數組更新Q值
-        for i, (_, _, action, reward, _, _, done) in enumerate(batch):
+        for i, (_, _, _, action, reward, _, _, _, done) in enumerate(batch):
             action = min(action, 19)
             if done:
                 current_q[i][action] = reward
             else:
                 current_q[i][action] = reward + self.gamma * np.max(target_q[i])
         
-        # 訓練模型
         loss = self.model.model.train_on_batch(
-            x={'map_input': states, 'frontier_input': frontiers_batch},
+            x={
+                'map_input': states,
+                'frontier_input': frontiers_batch,
+                'robot_pos_input': robot_pos_batch
+            },
             y=current_q
         )
         
-        # 更新探索率
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
         
@@ -201,15 +195,21 @@ class FrontierTrainer:
                 if len(frontiers) == 0:
                     break  # 無可用的frontier點
                     
-                action = self.choose_action(state, frontiers)
+                # 獲取正規化後的機器人位置
+                robot_pos = self.robot.get_normalized_position()
+                
+                # 選擇動作時包含機器人位置
+                action = self.choose_action(state, frontiers, robot_pos)
                 selected_frontier = frontiers[action]
                 
                 # 移動到選定的frontier點
                 next_state, reward, move_done = self.robot.move_to_frontier(selected_frontier)
                 next_frontiers = self.robot.get_frontiers()
+                next_robot_pos = self.robot.get_normalized_position()
                 
                 # 存儲經驗並訓練
-                self.remember(state, frontiers, action, reward, next_state, next_frontiers, move_done)
+                self.remember(state, frontiers, robot_pos, action, reward, 
+                            next_state, next_frontiers, next_robot_pos, move_done)
                 loss = self.train_step()
                 if loss is not None:
                     episode_losses.append(loss)
