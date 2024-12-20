@@ -87,7 +87,7 @@ class FrontierTrainer:
                 return 0
         
         if np.random.random() < self.epsilon:
-            return np.random.randint(min(50, len(frontiers)))
+            return np.random.randint(min(self.model.max_frontiers, len(frontiers)))
         
         state_batch = np.expand_dims(state, 0)
         frontiers_batch = np.expand_dims(self.pad_frontiers(frontiers), 0)
@@ -119,7 +119,7 @@ class FrontierTrainer:
             if len(next_state.shape) == 2:
                 next_state = np.expand_dims(next_state, axis=-1)
             
-            action = min(action, 19)
+            action = min(action, self.model.max_frontiers - 1)
             
             states.append(state)
             robot_pos_batch.append(robot_pos)
@@ -154,7 +154,7 @@ class FrontierTrainer:
         })
         
         for i, (_, _, _, action, reward, _, _, _, done) in enumerate(batch):
-            action = min(action, 19)
+            action = min(action, self.model.max_frontiers - 1)
             if done:
                 current_q[i][action] = reward
             else:

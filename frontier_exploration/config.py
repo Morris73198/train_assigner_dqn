@@ -21,7 +21,7 @@ TRAIN_CONFIG = {
     'episodes': 1000000,             # 訓練總回合數
     'steps_per_episode': 5000,       # 每回合最大步數
     'target_update_freq': 20,        # 目標網路更新頻率
-    'save_freq': 20                 # 模型儲存頻率
+    'save_freq': 20,                 # 模型儲存頻率
 }
 
 # 機器人配置
@@ -51,7 +51,7 @@ ROBOT_CONFIG = {
 REWARD_CONFIG = {
     'exploration_weight': 2.0,       # 探索獎勵權重
     'movement_penalty': -0.5,   # 移動懲罰
-    'collision_penalty': -0.005,     # 碰撞懲罰
+    'collision_penalty': -0.0005,     # 碰撞懲罰
     # 'target_completion_reward': 5.0,  # 目標完成獎勵（已註釋）
-    'completion_reward': 10.0        # 探索完成獎勵
+    # 'completion_reward': 10.0        # 探索完成獎勵
 }
