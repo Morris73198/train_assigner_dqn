@@ -241,17 +241,10 @@ class MultiRobotTrainer:
         return loss
     
     def train(self, episodes=1000000, target_update_freq=10, save_freq=10):
-        """執行訓練過程
-        
-        Args:
-            episodes: 訓練總輪數
-            target_update_freq: 目標網絡更新頻率
-            save_freq: 保存檢查點頻率
-        """
         for episode in range(episodes):
-            # 初始化新一輪
-            state = self.robot1.begin()  # 開始新地圖
-            self.robot2.begin()  # 讓第二個機器人也開始同一張地圖
+            # 同時初始化兩個機器人到同一張新地圖
+            state = self.robot1.begin()
+            self.robot2.begin()
             
             total_reward = 0
             robot1_total_reward = 0
@@ -259,13 +252,14 @@ class MultiRobotTrainer:
             steps = 0
             episode_losses = []
             
-            # 在當前地圖上訓練直到完成
+            # 在當前地圖上訓練直到任一機器人完成探索
             while not (self.robot1.check_done() or self.robot2.check_done()):
-                frontiers = self.robot1.get_frontiers()  # 使用同一組frontiers
+                # 獲取共享地圖上的frontiers
+                frontiers = self.robot1.get_frontiers()
                 if len(frontiers) == 0:
                     break
                 
-                # 獲取機器人位置
+                # 獲取兩個機器人的當前位置
                 robot1_pos = self.robot1.get_normalized_position()
                 robot2_pos = self.robot2.get_normalized_position()
                 
@@ -274,12 +268,24 @@ class MultiRobotTrainer:
                     state, frontiers, robot1_pos, robot2_pos
                 )
                 
-                # 執行動作
+                # 執行動作 - 兩個機器人同時移動
                 robot1_frontier = frontiers[robot1_action]
                 robot2_frontier = frontiers[robot2_action]
                 
+                # 記錄移動前的地圖狀態
+                old_op_map = self.robot1.op_map.copy()
+                
+                # 移動並更新共享地圖
                 next_state, robot1_reward, robot1_done = self.robot1.move_to_frontier(robot1_frontier)
+                # 確保 robot2 使用更新後的地圖
+                self.robot2.op_map = self.robot1.op_map.copy()
                 _, robot2_reward, robot2_done = self.robot2.move_to_frontier(robot2_frontier)
+                # 確保 robot1 也看到 robot2 的探索結果
+                self.robot1.op_map = self.robot2.op_map.copy()
+                
+                # 更新彼此的位置信息
+                self.robot1.other_robot_position = self.robot2.robot_position.copy()
+                self.robot2.other_robot_position = self.robot1.robot_position.copy()
                 
                 # 獲取下一個狀態的資訊
                 next_frontiers = self.robot1.get_frontiers()

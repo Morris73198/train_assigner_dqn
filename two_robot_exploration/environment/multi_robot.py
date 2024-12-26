@@ -346,11 +346,19 @@ class Robot:
             reward = REWARD_CONFIG['collision_penalty']
             done = True
         else:
+            # 更新共享地圖
             self.op_map = self.inverse_sensor(
                 self.robot_position, self.sensor_range, 
                 self.op_map, self.global_map
             )
-            reward = self.calculate_fast_reward(old_op_map, self.op_map, move_vector)
+            
+            # 避免路徑重疊懲罰
+            distance_to_other = np.linalg.norm(self.robot_position - self.other_robot_position)
+            path_overlap_penalty = 0.0
+            if distance_to_other < ROBOT_CONFIG['robot_size'] * 2:
+                path_overlap_penalty = -0.1
+            
+            reward = self.calculate_fast_reward(old_op_map, self.op_map, move_vector) + path_overlap_penalty
             done = False
         
         self.steps += 1
@@ -558,6 +566,7 @@ class Robot:
         return valid_points.astype(int)
 
     def get_frontiers(self):
+        """取得當前可用的frontier點，考慮其他機器人的位置"""
         if self.is_moving_to_target and self.current_target_frontier is not None:
             return np.array([self.current_target_frontier])
             
@@ -565,8 +574,17 @@ class Robot:
         if len(frontiers) == 0:
             return np.zeros((0, 2))
             
+        # 計算到自己的距離
         distances = np.linalg.norm(frontiers - self.robot_position, axis=1)
-        sorted_indices = np.argsort(distances)
+        
+        # 計算到其他機器人的距離
+        other_distances = np.linalg.norm(frontiers - self.other_robot_position, axis=1)
+        
+        # 根據距離和其他機器人的位置對frontier進行排序
+        # 優先選擇離自己近但離其他機器人遠的點
+        scores = distances - 0.5 * other_distances  # 可以調整權重
+        sorted_indices = np.argsort(scores)
+        
         return frontiers[sorted_indices]
 
     def plot_env(self):
