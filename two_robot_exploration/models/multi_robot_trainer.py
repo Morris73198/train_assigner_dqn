@@ -258,7 +258,7 @@ class MultiRobotTrainer:
                 frontiers = self.robot1.get_frontiers()
                 if len(frontiers) == 0:
                     break
-                
+                    
                 # 獲取兩個機器人的當前位置
                 robot1_pos = self.robot1.get_normalized_position()
                 robot2_pos = self.robot2.get_normalized_position()

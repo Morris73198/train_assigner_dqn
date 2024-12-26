@@ -44,6 +44,9 @@ class Robot:
         self.plot = plot
         self.is_primary = is_primary
         
+        self.shared_env = shared_env 
+        
+        
         self.lethal_cost = 100  # 致命障礙物代價
         self.decay_factor = 3  # 代價衰減因子
         self.inflation_radius = ROBOT_CONFIG['robot_size'] * 1.5  # 膨脹半徑為機器人尺寸的1.5倍
@@ -1036,13 +1039,44 @@ class Robot:
     
     
     def reset(self):
-        """重置环境到新地图"""
-        self.li_map += 1
-        if self.li_map >= self.map_number:
-            self.li_map = 0
+        """重置环境到新地圖，並確保兩個機器人使用相同的地圖"""
+        if self.is_primary:
+            self.li_map += 1
+            if self.li_map >= self.map_number:
+                self.li_map = 0
+                
+            # 主要機器人負責初始化新地圖
+            self.global_map, self.initial_positions = self.map_setup(
+                os.path.join(self.map_dir, self.map_list[self.li_map])
+            )
             
-        # 初始化新地图
-        self.__init__(self.li_map, self.mode, self.plot)
+            # 設置新的起始位置
+            self.robot_position = self.initial_positions[0].astype(np.int64)
+            self.other_robot_position = self.initial_positions[1].astype(np.int64)
+            
+            # 重置地圖狀態
+            self.op_map = np.ones(self.global_map.shape) * 127
+        else:
+            # 使用共享環境的地圖和相關資源
+            self.li_map = self.shared_env.li_map
+            self.global_map = self.shared_env.global_map
+            self.op_map = self.shared_env.op_map
+            self.map_size = self.shared_env.map_size
+            
+            # 使用不同的起始位置
+            self.robot_position = self.shared_env.other_robot_position.copy()
+            self.other_robot_position = self.shared_env.robot_position.copy()
+        
+        # 重置其他狀態
+        self.old_position = np.zeros([2])
+        self.old_op_map = np.empty([0])
+        self.current_target_frontier = None
+        self.is_moving_to_target = False
+        self.steps = 0
+        
+        if self.plot:
+            self.initialize_visualization()
+            
         return self.begin()
 
     def check_done(self):
