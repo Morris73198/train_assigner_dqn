@@ -368,15 +368,17 @@ class MultiRobotTrainer:
         episodes = range(1, len(self.training_history['episode_rewards']) + 1)
         
         # 繪製總獎勵
-        axs[0].plot(episodes, self.training_history['episode_rewards'])
+        axs[0].plot(episodes, self.training_history['episode_rewards'], color='#2E8B57')  # 深綠色表示總體
         axs[0].set_title('總獎勵')
         axs[0].set_xlabel('輪數')
         axs[0].set_ylabel('獎勵')
         axs[0].grid(True)
         
         # 繪製各機器人獎勵
-        axs[1].plot(episodes, self.training_history['robot1_rewards'], label='Robot1')
-        axs[1].plot(episodes, self.training_history['robot2_rewards'], label='Robot2')
+        axs[1].plot(episodes, self.training_history['robot1_rewards'], 
+                    color='#8A2BE2', label='Robot1')  # 紫色
+        axs[1].plot(episodes, self.training_history['robot2_rewards'], 
+                    color='#FFA500', label='Robot2')  # 橘色
         axs[1].set_title('各機器人獎勵')
         axs[1].set_xlabel('輪數')
         axs[1].set_ylabel('獎勵')
@@ -384,28 +386,28 @@ class MultiRobotTrainer:
         axs[1].grid(True)
         
         # 繪製步數
-        axs[2].plot(episodes, self.training_history['episode_lengths'])
+        axs[2].plot(episodes, self.training_history['episode_lengths'], color='#4169E1')  # 藍色
         axs[2].set_title('每輪步數')
         axs[2].set_xlabel('輪數')
         axs[2].set_ylabel('步數')
         axs[2].grid(True)
         
         # 繪製探索率
-        axs[3].plot(episodes, self.training_history['exploration_rates'])
+        axs[3].plot(episodes, self.training_history['exploration_rates'], color='#DC143C')  # 深紅色
         axs[3].set_title('探索率')
         axs[3].set_xlabel('輪數')
         axs[3].set_ylabel('Epsilon')
         axs[3].grid(True)
         
         # 繪製損失
-        axs[4].plot(episodes, self.training_history['losses'])
+        axs[4].plot(episodes, self.training_history['losses'], color='#2F4F4F')  # 深灰色
         axs[4].set_title('訓練損失')
         axs[4].set_xlabel('輪數')
         axs[4].set_ylabel('損失值')
         axs[4].grid(True)
         
         # 繪製探索進度
-        axs[5].plot(episodes, self.training_history['exploration_progress'])
+        axs[5].plot(episodes, self.training_history['exploration_progress'], color='#228B22')  # 森林綠
         axs[5].set_title('探索進度')
         axs[5].set_xlabel('輪數')
         axs[5].set_ylabel('探索完成率')
@@ -418,13 +420,13 @@ class MultiRobotTrainer:
         # 另外繪製一個單獨的兩機器人獎勵對比圖
         plt.figure(figsize=(10, 6))
         plt.plot(episodes, self.training_history['robot1_rewards'], 
-                'b-', label='Robot1', alpha=0.7)
+                color='#8A2BE2', label='Robot1', alpha=0.7)  # 紫色
         plt.plot(episodes, self.training_history['robot2_rewards'], 
-                'g-', label='Robot2', alpha=0.7)
+                color='#FFA500', label='Robot2', alpha=0.7)  # 橘色
         plt.fill_between(episodes, self.training_history['robot1_rewards'], 
-                        alpha=0.3, color='blue')
+                        alpha=0.3, color='#9370DB')  # 淺紫色填充
         plt.fill_between(episodes, self.training_history['robot2_rewards'], 
-                        alpha=0.3, color='green')
+                        alpha=0.3, color='#FFB84D')  # 淺橘色填充
         plt.title('機器人獎勵對比')
         plt.xlabel('輪數')
         plt.ylabel('獎勵')

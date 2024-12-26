@@ -588,21 +588,34 @@ class Robot:
         return frontiers[sorted_indices]
 
     def plot_env(self):
+        """繪製環境和機器人"""
         plt.cla()
         plt.imshow(self.op_map, cmap='gray')
         plt.axis((0, self.map_size[1], self.map_size[0], 0))
         
-        plt.plot(self.xPoint, self.yPoint, 'b-', linewidth=2, label='Robot Path')
+        # 繪製路徑，Robot1用紫色，Robot2用橘色
+        if self.is_primary:
+            path_color = '#800080'  # 紫色
+            robot_color = '#800080'
+        else:
+            path_color = '#FFA500'  # 橘色
+            robot_color = '#FFA500'
         
+        plt.plot(self.xPoint, self.yPoint, color=path_color, 
+                linewidth=2, label=f'{"Robot1" if self.is_primary else "Robot2"} Path')
+        
+        # 繪製frontier點
         frontiers = self.get_frontiers()
         if len(frontiers) > 0:
             plt.scatter(frontiers[:, 0], frontiers[:, 1], 
                     c='red', marker='*', s=100, label='Frontiers')
         
+        # 繪製目標frontier
         if self.current_target_frontier is not None:
             plt.plot(self.current_target_frontier[0], self.current_target_frontier[1], 
                     'go', markersize=10, label='Target Frontier')
             
+            # 繪製規劃路徑
             path = self.astar_path(
                 self.op_map,
                 self.robot_position.astype(np.int32),
@@ -612,9 +625,10 @@ class Robot:
             if path is not None and path.shape[1] > 1:
                 path_x = path[0, :]
                 path_y = path[1, :]
-                plt.plot(path_x, path_y, 'g--', linewidth=2, 
+                plt.plot(path_x, path_y, '--', color=path_color, linewidth=2, 
                         alpha=0.8, label='Planned Path')
                 
+                # 繪製移動方向箭頭
                 if len(path_x) > 1:
                     direction_x = path_x[1] - self.robot_position[0]
                     direction_y = path_y[1] - self.robot_position[1]
@@ -626,24 +640,104 @@ class Robot:
                         
                         plt.arrow(self.robot_position[0], self.robot_position[1],
                                 direction_x, direction_y,
-                                head_width=3, head_length=3, fc='yellow', ec='yellow',
+                                head_width=3, head_length=3, 
+                                fc=robot_color, ec=robot_color,
                                 label='Movement Direction', zorder=5)
         
+        # 繪製當前位置和起始位置
         plt.plot(self.robot_position[0], self.robot_position[1], 
-                'mo', markersize=8, label='Current Position')
+                'o', color=robot_color, markersize=8, label='Current Position')
         plt.plot(self.xPoint[0], self.yPoint[0], 
-                'co', markersize=8, label='Start Position')
+                'o', color='cyan', markersize=8, label='Start Position')
         
+        # 標籤和標題設置
         plt.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
         explored_ratio = np.sum(self.op_map == 255) / np.sum(self.global_map == 255)
-        plt.title(f'Exploration Progress: {explored_ratio:.1%}')
+        plt.title(f'{"Robot1" if self.is_primary else "Robot2"} Exploration Progress: {explored_ratio:.1%}')
         
         plt.pause(0.01)
 
 
 
 
-
+    def plot_training_progress(self):
+        """繪製訓練進度圖"""
+        fig, axs = plt.subplots(6, 1, figsize=(12, 20))
+        
+        episodes = range(1, len(self.training_history['episode_rewards']) + 1)
+        
+        # 繪製總獎勵
+        axs[0].plot(episodes, self.training_history['episode_rewards'], 
+                    color='#4B0082')  # 深紫色
+        axs[0].set_title('總獎勵')
+        axs[0].set_xlabel('輪數')
+        axs[0].set_ylabel('獎勵')
+        axs[0].grid(True)
+        
+        # 繪製各機器人獎勵
+        axs[1].plot(episodes, self.training_history['robot1_rewards'], 
+                    color='#800080', label='Robot1', alpha=0.8)  # 紫色
+        axs[1].plot(episodes, self.training_history['robot2_rewards'], 
+                    color='#FFA500', label='Robot2', alpha=0.8)  # 橘色
+        axs[1].set_title('各機器人獎勵')
+        axs[1].set_xlabel('輪數')
+        axs[1].set_ylabel('獎勵')
+        axs[1].legend()
+        axs[1].grid(True)
+        
+        # 繪製步數
+        axs[2].plot(episodes, self.training_history['episode_lengths'], 
+                    color='#4169E1')  # 皇家藍
+        axs[2].set_title('每輪步數')
+        axs[2].set_xlabel('輪數')
+        axs[2].set_ylabel('步數')
+        axs[2].grid(True)
+        
+        # 繪製探索率
+        axs[3].plot(episodes, self.training_history['exploration_rates'], 
+                    color='#228B22')  # 森林綠
+        axs[3].set_title('探索率')
+        axs[3].set_xlabel('輪數')
+        axs[3].set_ylabel('Epsilon')
+        axs[3].grid(True)
+        
+        # 繪製損失
+        axs[4].plot(episodes, self.training_history['losses'], 
+                    color='#B22222')  # 火磚紅
+        axs[4].set_title('訓練損失')
+        axs[4].set_xlabel('輪數')
+        axs[4].set_ylabel('損失值')
+        axs[4].grid(True)
+        
+        # 繪製探索進度
+        axs[5].plot(episodes, self.training_history['exploration_progress'], 
+                    color='#2F4F4F')  # 深灰
+        axs[5].set_title('探索進度')
+        axs[5].set_xlabel('輪數')
+        axs[5].set_ylabel('探索完成率')
+        axs[5].grid(True)
+        
+        plt.tight_layout()
+        plt.savefig('training_progress.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # 另外繪製一個單獨的兩機器人獎勵對比圖
+        plt.figure(figsize=(10, 6))
+        plt.plot(episodes, self.training_history['robot1_rewards'], 
+                color='#800080', label='Robot1', alpha=0.7)  # 紫色
+        plt.plot(episodes, self.training_history['robot2_rewards'], 
+                color='#FFA500', label='Robot2', alpha=0.7)  # 橘色
+        plt.fill_between(episodes, self.training_history['robot1_rewards'], 
+                        alpha=0.3, color='#800080')  # 紫色填充
+        plt.fill_between(episodes, self.training_history['robot2_rewards'], 
+                        alpha=0.3, color='#FFA500')  # 橘色填充
+        plt.title('機器人獎勵對比')
+        plt.xlabel('輪數')
+        plt.ylabel('獎勵')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig('robots_rewards_comparison.png', dpi=300, bbox_inches='tight')
+        plt.close()
 
 
 
