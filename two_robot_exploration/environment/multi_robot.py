@@ -592,7 +592,10 @@ class Robot:
 
     def plot_env(self):
         """繪製環境和機器人"""
-        plt.cla()
+        # 使用各自的 figure
+        plt.figure(self.fig.number)
+        plt.clf()  # 清除當前 figure
+        
         plt.imshow(self.op_map, cmap='gray')
         plt.axis((0, self.map_size[1], self.map_size[0], 0))
         
@@ -658,7 +661,9 @@ class Robot:
         explored_ratio = np.sum(self.op_map == 255) / np.sum(self.global_map == 255)
         plt.title(f'{"Robot1" if self.is_primary else "Robot2"} Exploration Progress: {explored_ratio:.1%}')
         
-        plt.pause(0.01)
+        # 重要！使用 draw 和 flush_events 來更新圖表，而不是 plt.pause
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
 
 
 
@@ -1147,6 +1152,13 @@ class Robot:
         self.yPoint = np.array([self.robot_position[1]])
         self.x2frontier = np.empty([0])
         self.y2frontier = np.empty([0])
+        
+        # 為每個機器人創建獨立的 figure
+        self.fig = plt.figure(figsize=(10, 10))
+        # 設置視窗標題以區分不同機器人
+        self.fig.canvas.manager.set_window_title(
+            f'{"Robot1" if self.is_primary else "Robot2"} Exploration'
+        )
 
     def get_other_robot_pos(self):
         """獲取另一個機器人的位置"""
@@ -1155,3 +1167,9 @@ class Robot:
     def update_other_robot_pos(self, pos):
         """更新另一個機器人的位置"""
         self.other_robot_position = np.array(pos)
+        
+        
+    def cleanup_visualization(self):
+        """清理可視化資源"""
+        if hasattr(self, 'fig'):
+            plt.close(self.fig)
