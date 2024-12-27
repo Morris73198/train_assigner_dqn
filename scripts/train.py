@@ -1,9 +1,9 @@
 import os
 import sys
-from frontier_exploration.models.network import FrontierNetworkModel
-from frontier_exploration.models.trainer import FrontierTrainer
-from frontier_exploration.environment.robot import Robot
-from frontier_exploration.config import MODEL_CONFIG, TRAIN_CONFIG, MODEL_DIR
+from one_robot_exploration.models.network import FrontierNetworkModel
+from one_robot_exploration.models.trainer import FrontierTrainer
+from one_robot_exploration.environment.robot import Robot
+from one_robot_exploration.config import MODEL_CONFIG, TRAIN_CONFIG, MODEL_DIR
 
 def main():
     # model

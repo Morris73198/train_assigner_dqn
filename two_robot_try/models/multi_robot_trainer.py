@@ -5,7 +5,7 @@ from collections import deque
 import tensorflow as tf
 import matplotlib.pyplot as plt
 import json
-from two_robot_exploration.config import MODEL_DIR, ROBOT_CONFIG
+from two_robot_try.config import MODEL_DIR
 
 class MultiRobotTrainer:
     def __init__(self, model, robot1, robot2, memory_size=10000, batch_size=16, gamma=0.99):
@@ -241,197 +241,125 @@ class MultiRobotTrainer:
         return loss
     
     def train(self, episodes=1000000, target_update_freq=10, save_freq=10):
-        """執行多機器人協同訓練
-        
-        Args:
-            episodes: 訓練總回合數 
-            target_update_freq: 目標網路更新頻率
-            save_freq: 模型保存頻率
-        """
-        try:
-            for episode in range(episodes):
-                # 初始化所有追踪變數
-                robot1_in_motion = False
-                robot2_in_motion = False
-                robot1_target = None
-                robot2_target = None
-                robot1_action = None
-                robot2_action = None
-                robot1_done = False   # 新增
-                robot2_done = False   # 新增
-                robot1_reward = 0     # 新增
-                robot2_reward = 0     # 新增
+        for episode in range(episodes):
+            # 同時初始化兩個機器人到同一張新地圖
+            state = self.robot1.begin()
+            self.robot2.begin()
+            
+            total_reward = 0
+            robot1_total_reward = 0
+            robot2_total_reward = 0
+            steps = 0
+            episode_losses = []
+            
+            # 在當前地圖上訓練直到任一機器人完成探索
+            while not (self.robot1.check_done() or self.robot2.check_done()):
+                # 獲取共享地圖上的frontiers
+                frontiers = self.robot1.get_frontiers()
+                if len(frontiers) == 0:
+                    break
+                    
+                # 獲取兩個機器人的當前位置
+                robot1_pos = self.robot1.get_normalized_position()
+                robot2_pos = self.robot2.get_normalized_position()
                 
-                # 同時初始化兩個機器人
-                state = self.robot1.begin()
-                self.robot2.begin()
-                robot1_state = state
-                robot2_state = state
-                
-                # 初始化episode統計
-                total_reward = 0
-                robot1_total_reward = 0
-                robot2_total_reward = 0
-                steps = 0
-                episode_losses = []
-                
-                while not (self.robot1.check_done() or self.robot2.check_done()):
-                    frontiers = self.robot1.get_frontiers()
-                    if len(frontiers) == 0:
-                        break
-
-                    # 獲取當前位置
-                    robot1_pos = self.robot1.get_normalized_position()
-                    robot2_pos = self.robot2.get_normalized_position()
-                    
-                    # 為不在移動中的機器人選擇新目標
-                    if not robot1_in_motion:
-                        robot1_action, _ = self.choose_actions(
-                            state, frontiers, robot1_pos, robot2_pos
-                        )
-                        robot1_target = frontiers[robot1_action]
-                        robot1_in_motion = True
-                    
-                    if not robot2_in_motion:
-                        _, robot2_action = self.choose_actions(
-                            state, frontiers, robot1_pos, robot2_pos
-                        )
-                        robot2_target = frontiers[robot2_action]
-                        robot2_in_motion = True
-                    
-                    # 記錄移動前的地圖狀態
-                    old_op_map = self.robot1.op_map.copy()
-                    
-                    # 同步執行一步移動
-                    if robot1_in_motion:
-                        next_state1, r1, d1 = self.robot1.move_to_frontier(robot1_target)
-                        robot1_reward = r1
-                        if d1:
-                            robot1_in_motion = False
-                            robot1_done = True
-                    else:
-                        next_state1 = robot1_state
-                        robot1_reward = 0
-                        robot1_done = False
-                        
-                    # 更新地圖給robot2
-                    self.robot2.op_map = self.robot1.op_map.copy()
-                    
-                    if robot2_in_motion:
-                        next_state2, r2, d2 = self.robot2.move_to_frontier(robot2_target) 
-                        robot2_reward = r2
-                        if d2:
-                            robot2_in_motion = False
-                            robot2_done = True
-                    else:
-                        next_state2 = robot2_state
-                        robot2_reward = 0
-                        robot2_done = False
-                    
-                    # 確保兩個機器人共享最新的地圖
-                    self.robot1.op_map = self.robot2.op_map.copy()
-                    
-                    # 更新位置信息
-                    self.robot1.other_robot_position = self.robot2.robot_position.copy()
-                    self.robot2.other_robot_position = self.robot1.robot_position.copy()
-                    
-                    # 更新狀態
-                    robot1_state = next_state1
-                    robot2_state = next_state2
-                    state = next_state1  # 使用共享地圖的狀態
-                    
-                    # 獲取下一個狀態的資訊
-                    next_frontiers = self.robot1.get_frontiers()
-                    next_robot1_pos = self.robot1.get_normalized_position()
-                    next_robot2_pos = self.robot2.get_normalized_position()
-                    
-                    # 如果有機器人完成了移動，存儲經驗
-                    if robot1_done or robot2_done:
-                        self.remember(
-                            state, frontiers, robot1_pos, robot2_pos,
-                            robot1_action if robot1_done else 0,
-                            robot2_action if robot2_done else 0,
-                            robot1_reward, robot2_reward,
-                            state, next_frontiers, next_robot1_pos, next_robot2_pos,
-                            robot1_done or robot2_done
-                        )
-                        
-                        # 訓練網絡
-                        loss = self.train_step()
-                        if loss is not None and isinstance(loss, (int, float)):
-                            episode_losses.append(loss)
-                    
-                    # 更新獎勵統計
-                    total_reward += (robot1_reward + robot2_reward)
-                    robot1_total_reward += robot1_reward
-                    robot2_total_reward += robot2_reward
-                    steps += 1
-                    
-                    # 更新視覺化
-                    if steps % ROBOT_CONFIG['plot_interval'] == 0:
-                        if self.robot1.plot:
-                            self.robot1.plot_env()
-                        if self.robot2.plot:
-                            self.robot2.plot_env()
-                
-                # 更新訓練歷史
-                exploration_progress = self.robot1.get_exploration_progress()
-                self.training_history['episode_rewards'].append(total_reward)
-                self.training_history['robot1_rewards'].append(robot1_total_reward)
-                self.training_history['robot2_rewards'].append(robot2_total_reward)
-                self.training_history['episode_lengths'].append(steps)
-                self.training_history['exploration_rates'].append(self.epsilon)
-                self.training_history['losses'].append(
-                    np.mean(episode_losses) if episode_losses else 0
+                # 選擇動作
+                robot1_action, robot2_action = self.choose_actions(
+                    state, frontiers, robot1_pos, robot2_pos
                 )
-                self.training_history['exploration_progress'].append(exploration_progress)
                 
-                # 更新目標網路
-                if (episode + 1) % target_update_freq == 0:
-                    self.model.update_target_model()
+                # 執行動作 - 兩個機器人同時移動
+                robot1_frontier = frontiers[robot1_action]
+                robot2_frontier = frontiers[robot2_action]
                 
-                # 保存檢查點
-                if (episode + 1) % save_freq == 0:
-                    self.save_checkpoint(episode + 1)
-                    self.plot_training_progress()
+                # 記錄移動前的地圖狀態
+                old_op_map = self.robot1.op_map.copy()
                 
-                # 更新探索率
-                if self.epsilon > self.epsilon_min:
-                    self.epsilon *= self.epsilon_decay
+                # 移動並更新共享地圖
+                next_state, robot1_reward, robot1_done = self.robot1.move_to_frontier(robot1_frontier)
+                # 確保 robot2 使用更新後的地圖
+                self.robot2.op_map = self.robot1.op_map.copy()
+                _, robot2_reward, robot2_done = self.robot2.move_to_frontier(robot2_frontier)
+                # 確保 robot1 也看到 robot2 的探索結果
+                self.robot1.op_map = self.robot2.op_map.copy()
                 
-                # 列印訓練信息
-                print(f"\n第 {episode + 1}/{episodes} 輪 (地圖 {self.robot1.li_map})")
-                print(f"步數: {steps}, 總獎勵: {total_reward:.2f}")
-                print(f"Robot1 獎勵: {robot1_total_reward:.2f}")
-                print(f"Robot2 獎勵: {robot2_total_reward:.2f}")
-                print(f"探索率: {self.epsilon:.3f}")
-                print(f"平均損失: {self.training_history['losses'][-1]:.6f}")
-                print(f"探索進度: {exploration_progress:.1%}")
+                # 更新彼此的位置信息
+                self.robot1.other_robot_position = self.robot2.robot_position.copy()
+                self.robot2.other_robot_position = self.robot1.robot_position.copy()
                 
-                if exploration_progress >= self.robot1.finish_percent:
-                    print("地圖探索完成！")
-                else:
-                    print("地圖探索未完成")
-                print("-" * 50)
+                # 獲取下一個狀態的資訊
+                next_frontiers = self.robot1.get_frontiers()
+                next_robot1_pos = self.robot1.get_normalized_position()
+                next_robot2_pos = self.robot2.get_normalized_position()
                 
-                # 準備下一個地圖
-                state = self.robot1.reset()
-                self.robot2.reset()
+                done = robot1_done or robot2_done
                 
-            # 訓練結束後保存最終模型
-            self.save_checkpoint(episodes)
+                # 存儲經驗
+                self.remember(
+                    state, frontiers, robot1_pos, robot2_pos,
+                    robot1_action, robot2_action, robot1_reward, robot2_reward,
+                    next_state, next_frontiers, next_robot1_pos, next_robot2_pos,
+                    done
+                )
+                
+                # 訓練網絡
+                loss = self.train_step()
+                if loss is not None and isinstance(loss, (int, float)):
+                    episode_losses.append(loss)
+                
+                # 更新統計
+                total_reward += (robot1_reward + robot2_reward)
+                robot1_total_reward += robot1_reward
+                robot2_total_reward += robot2_reward
+                steps += 1
+                state = next_state
+                
+                # 如果這次移動失敗了但地圖還沒探索完，繼續嘗試
+                if done and not (self.robot1.check_done() or self.robot2.check_done()):
+                    continue
             
-        except Exception as e:
-            print(f"訓練過程出現錯誤: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            # 更新訓練歷史
+            exploration_progress = self.robot1.get_exploration_progress()
+            self.training_history['episode_rewards'].append(total_reward)
+            self.training_history['robot1_rewards'].append(robot1_total_reward)
+            self.training_history['robot2_rewards'].append(robot2_total_reward)
+            self.training_history['episode_lengths'].append(steps)
+            self.training_history['exploration_rates'].append(self.epsilon)
+            self.training_history['losses'].append(
+                np.mean([loss for loss in episode_losses if isinstance(loss, (int, float))]) if episode_losses else 0
+            )
+            self.training_history['exploration_progress'].append(exploration_progress)
             
-        finally:
-            # 確保清理資源
-            if hasattr(self.robot1, 'cleanup_visualization'):
-                self.robot1.cleanup_visualization()
-            if hasattr(self.robot2, 'cleanup_visualization'):
-                self.robot2.cleanup_visualization()
+            # 更新目標網絡
+            if (episode + 1) % target_update_freq == 0:
+                self.model.update_target_model()
+            
+            # 保存檢查點
+            if (episode + 1) % save_freq == 0:
+                self.save_checkpoint(episode + 1)
+                self.plot_training_progress()
+            
+            # 列印訓練信息
+            print(f"\n第 {episode + 1}/{episodes} 輪 (地圖 {self.robot1.li_map})")
+            print(f"步數: {steps}, 總獎勵: {total_reward:.2f}")
+            print(f"Robot1 獎勵: {robot1_total_reward:.2f}")
+            print(f"Robot2 獎勵: {robot2_total_reward:.2f}")
+            print(f"探索率: {self.epsilon:.3f}")
+            print(f"平均損失: {self.training_history['losses'][-1]:.6f}")
+            print(f"探索進度: {exploration_progress:.1%}")
+            
+            if exploration_progress >= self.robot1.finish_percent:
+                print("地圖探索完成！")
+            else:
+                print("地圖探索未完成")
+            print("-" * 50)
+            
+            # 準備下一個地圖
+            state = self.robot1.reset()
+            self.robot2.reset()
+        
+        # 訓練結束後保存最終模型
+        self.save_checkpoint(episodes)
     
     def plot_training_progress(self):
         """繪製訓練進度圖"""

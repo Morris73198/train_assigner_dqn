@@ -3,10 +3,24 @@ import numpy as np
 import tensorflow as tf
 from time import sleep
 import matplotlib.pyplot as plt
-from frontier_exploration.models.network import FrontierNetworkModel
-from frontier_exploration.environment.robot import Robot
-from frontier_exploration.config import MODEL_CONFIG, MODEL_DIR
-from frontier_exploration.visualization import Visualizer
+from one_robot_exploration.models.network import FrontierNetworkModel
+from one_robot_exploration.environment.robot import Robot
+from one_robot_exploration.config import MODEL_CONFIG, MODEL_DIR
+from one_robot_exploration.visualization import Visualizer
+
+def save_frame(robot, visualizer, save_path):
+    """保存当前帧为图像"""
+    # 创建新的图形
+    plt.figure(figsize=(10, 10))
+    
+    # 使用visualizer绘制当前状态
+    visualizer.visualize_frontiers(robot, save=False)
+    
+    # 保存图形
+    plt.savefig(save_path, bbox_inches='tight', dpi=100, facecolor='white', edgecolor='none')
+    
+    # 关闭图形，释放内存
+    plt.close('all')
 
 def pad_frontiers(frontiers, max_frontiers, map_size):
     """Pad and normalize frontiers"""
@@ -20,9 +34,7 @@ def pad_frontiers(frontiers, max_frontiers, map_size):
     return padded
 
 def test_model(model_path, num_episodes=5, visualize=True, save_results=True, debug=True):
-    """
-    Test the trained frontier exploration model with debugging
-    """
+    """Test the trained frontier exploration model with debugging"""
     # Initialize model
     model = FrontierNetworkModel(
         input_shape=MODEL_CONFIG['input_shape'],
@@ -32,6 +44,10 @@ def test_model(model_path, num_episodes=5, visualize=True, save_results=True, de
     
     # Initialize visualizer if needed
     visualizer = Visualizer() if visualize else None
+    
+    # Create test_file directory if it doesn't exist
+    base_dir = "test_file"
+    os.makedirs(base_dir, exist_ok=True)
     
     # Test statistics
     results = {
@@ -46,11 +62,23 @@ def test_model(model_path, num_episodes=5, visualize=True, save_results=True, de
     for episode in range(num_episodes):
         print(f"\nStarting test episode {episode + 1}/{num_episodes}")
         
+        # Create episode directory
+        episode_dir = os.path.join(base_dir, f"episode_{episode+1}")
+        os.makedirs(episode_dir, exist_ok=True)
+        
         # Create test environment
         robot = Robot(episode, train=False, plot=visualize)
         
         # Start testing
         state = robot.begin()
+        frame_count = 0
+        
+        # Save initial frame
+        if visualize:
+            save_frame(robot, visualizer, 
+                      os.path.join(episode_dir, f"pic{frame_count:04d}.png"))
+            frame_count += 1
+        
         total_reward = 0
         steps = 0
         episode_done = False
@@ -105,21 +133,31 @@ def test_model(model_path, num_episodes=5, visualize=True, save_results=True, de
                 # Move to selected frontier
                 next_state, reward, move_done = robot.move_to_frontier(selected_frontier)
                 
+                # Save frame after movement
+                if visualize:
+                    save_frame(robot, visualizer, 
+                             os.path.join(episode_dir, f"pic{frame_count:04d}.png"))
+                    frame_count += 1
+                
                 # Check if robot is stuck
                 position_diff = np.linalg.norm(current_position - last_position)
-                if position_diff < 0.1:  # If robot barely moved
+                if position_diff < 0.1:
                     stuck_counter += 1
                 else:
                     stuck_counter = 0
                     
-                if stuck_counter >= 5:  # If stuck for 5 consecutive steps
+                if stuck_counter >= 5:
                     print("Robot appears to be stuck, trying different frontier")
-                    # Try second best action
                     sorted_actions = np.argsort(q_values[:len(frontiers)])[::-1]
                     for alt_action in sorted_actions[1:]:
                         alt_frontier = frontiers[alt_action]
-                        if np.linalg.norm(alt_frontier - selected_frontier) > 20:  # Try significantly different frontier
+                        if np.linalg.norm(alt_frontier - selected_frontier) > 20:
                             next_state, reward, move_done = robot.move_to_frontier(alt_frontier)
+                            # Save frame for alternative movement
+                            if visualize:
+                                save_frame(robot, visualizer, 
+                                         os.path.join(episode_dir, f"pic{frame_count:04d}.png"))
+                                frame_count += 1
                             break
                     stuck_counter = 0
                 
@@ -133,18 +171,14 @@ def test_model(model_path, num_episodes=5, visualize=True, save_results=True, de
                 if debug:
                     print(f"Step reward: {reward:.2f}")
                     print(f"Move done: {move_done}")
-                
-                # Visualization update
-                if visualize and steps % 5 == 0:
-                    visualizer.visualize_frontiers(robot, save=save_results)
-                    plt.pause(0.01)
+                    print(f"Frames saved: {frame_count}")
                 
                 # Check if we need to end this episode
                 if move_done and exploration_ratio < robot.finish_percent:
                     print("Movement failed, but exploration incomplete. Retrying...")
                     continue
                 
-                if steps >= 1000:  # Add maximum steps limit
+                if steps >= 1000:
                     print("Reached maximum steps limit")
                     episode_done = True
                     
@@ -154,6 +188,11 @@ def test_model(model_path, num_episodes=5, visualize=True, save_results=True, de
         
         # Calculate final exploration ratio
         final_exploration = robot.get_exploration_progress()
+        
+        # Save final frame
+        if visualize:
+            save_frame(robot, visualizer, 
+                      os.path.join(episode_dir, f"pic{frame_count:04d}.png"))
         
         # Record episode results
         results['episode_rewards'].append(total_reward)
@@ -167,6 +206,7 @@ def test_model(model_path, num_episodes=5, visualize=True, save_results=True, de
         print(f"Total steps: {steps}")
         print(f"Total reward: {total_reward:.2f}")
         print(f"Final exploration progress: {final_exploration:.1%}")
+        print(f"Total frames saved: {frame_count + 1}")
         print("-" * 50)
     
     # Calculate overall statistics
@@ -182,7 +222,7 @@ def test_model(model_path, num_episodes=5, visualize=True, save_results=True, de
 
 if __name__ == '__main__':
     # Set up model path
-    model_path = os.path.join(MODEL_DIR, 'frontier_model_ep000077.h5')
+    model_path = os.path.join(MODEL_DIR, 'frontier_model_ep000740.h5')
     
     if not os.path.exists(model_path):
         print(f"Error: Model file not found at {model_path}")
@@ -203,5 +243,5 @@ if __name__ == '__main__':
         num_episodes=5,
         visualize=True,
         save_results=True,
-        debug=True  # Enable detailed debugging output
+        debug=True
     )
