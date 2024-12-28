@@ -166,8 +166,12 @@ class Robot:
 
     def move_to_frontier(self, target_frontier):
         """移動到frontier，一次移動一步，直到到達目標或確定無法到達"""
+        # 保存當前目標
+        self.current_target_frontier = target_frontier
+        
         # 如果沒有當前路徑或需要重新規劃路徑
         if not hasattr(self, 'current_path') or self.current_path is None:
+            # 計算新路徑
             path = self.astar_path(
                 self.op_map,
                 self.robot_position.astype(np.int32),
@@ -177,10 +181,16 @@ class Robot:
             
             if path is None:
                 # 無法找到路徑，返回失敗
+                self.current_path = None
                 return self.get_observation(), -1, True
                 
+            # 保存完整路徑
             self.current_path = self.simplify_path(path, ROBOT_CONFIG['path_simplification'])
             self.current_path_index = 0
+            
+            # 立即更新可視化以顯示新規劃的路徑
+            if self.plot:
+                self.plot_env()
 
         # 檢查是否還有路徑點要處理
         if self.current_path_index >= len(self.current_path.T):
@@ -189,6 +199,7 @@ class Robot:
             if dist_to_target < ROBOT_CONFIG['target_reach_threshold']:
                 # 成功到達目標
                 self.current_path = None
+                self.current_target_frontier = None
                 return self.get_observation(), 1.0, True
             else:
                 # 需要重新規劃路徑
@@ -231,6 +242,7 @@ class Robot:
             # 發生碰撞，任務失敗
             self.robot_position = self.nearest_free(self.free_tree, collision_points)
             self.current_path = None
+            self.current_target_frontier = None
             return self.get_observation(), REWARD_CONFIG['collision_penalty'], True
         
         # 更新地圖和獎勵
@@ -601,17 +613,21 @@ class Robot:
                     c='red', marker='*', s=100, label='Frontiers')
         
         # 4. 繪製目標 frontier 和規劃路徑
-        if hasattr(self, 'current_target_frontier') and self.current_target_frontier is not None:
+        if self.current_target_frontier is not None:
             # 目標點
             plt.plot(self.current_target_frontier[0], self.current_target_frontier[1], 
                     'go', markersize=10, label='Target Frontier')
             
             # 如果有當前路徑，顯示規劃路徑
-            if hasattr(self, 'current_path') and self.current_path is not None:
+            if self.current_path is not None and self.current_path.shape[1] > self.current_path_index:
                 remaining_path = self.current_path[:, self.current_path_index:]
+                plt.plot(remaining_path[0, :], remaining_path[1, :], '--', 
+                        color=path_color, linewidth=2, alpha=0.8, label='Planned Path')
+                
+                # 可選：顯示下一個目標點
                 if remaining_path.shape[1] > 1:
-                    plt.plot(remaining_path[0, :], remaining_path[1, :], '--', 
-                            color=path_color, linewidth=2, alpha=0.8, label='Planned Path')
+                    plt.plot(remaining_path[0, 1], remaining_path[1, 1], 'x', 
+                            color=path_color, markersize=8, label='Next Point')
         
         # 5. 繪製當前位置
         plt.plot(self.robot_position[0], self.robot_position[1], 
