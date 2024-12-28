@@ -614,9 +614,11 @@ class Robot:
         
         # 4. 繪製目標 frontier 和規劃路徑
         if self.current_target_frontier is not None:
-            # 目標點
+            # 目標點 - 使用三角形標記
+            triangle_color = '#800080' if self.is_primary else '#FFA500'  # 對應機器人顏色
             plt.plot(self.current_target_frontier[0], self.current_target_frontier[1], 
-                    'go', markersize=10, label='Target Frontier')
+                    marker='^', color=triangle_color, markersize=15, 
+                    label=f'{"Robot1" if self.is_primary else "Robot2"} Target')
             
             # 如果有當前路徑，顯示規劃路徑
             if self.current_path is not None and self.current_path.shape[1] > self.current_path_index:
@@ -624,7 +626,7 @@ class Robot:
                 plt.plot(remaining_path[0, :], remaining_path[1, :], '--', 
                         color=path_color, linewidth=2, alpha=0.8, label='Planned Path')
                 
-                # 可選：顯示下一個目標點
+                # 顯示下一個目標點
                 if remaining_path.shape[1] > 1:
                     plt.plot(remaining_path[0, 1], remaining_path[1, 1], 'x', 
                             color=path_color, markersize=8, label='Next Point')
@@ -654,7 +656,6 @@ class Robot:
         # 10. 更新圖表
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
-
 
 
 
@@ -1034,7 +1035,11 @@ class Robot:
     
     
     def reset(self):
-        """重置环境到新地圖，並確保兩個機器人使用相同的地圖"""
+        """重置環境到新地圖，並確保兩個機器人使用相同的地圖"""
+        # 在重置之前清理舊的可視化
+        if self.plot:
+            self.cleanup_visualization()
+
         if self.is_primary:
             self.li_map += 1
             if self.li_map >= self.map_number:
@@ -1051,6 +1056,10 @@ class Robot:
             
             # 重置地圖狀態
             self.op_map = np.ones(self.global_map.shape) * 127
+            
+            # 重新初始化KD樹和空閒空間點
+            self.t = self.map_points(self.global_map)
+            self.free_tree = spatial.KDTree(self.free_points(self.global_map).tolist())
         else:
             # 使用共享環境的地圖和相關資源
             self.li_map = self.shared_env.li_map
@@ -1061,17 +1070,25 @@ class Robot:
             # 使用不同的起始位置
             self.robot_position = self.shared_env.other_robot_position.copy()
             self.other_robot_position = self.shared_env.robot_position.copy()
+            
+            # 共享KD樹和空閒空間點
+            self.t = self.shared_env.t
+            self.free_tree = self.shared_env.free_tree
         
-        # 重置其他狀態
+        # 重置路徑規劃和frontier相關的狀態
         self.old_position = np.zeros([2])
         self.old_op_map = np.empty([0])
         self.current_target_frontier = None
         self.is_moving_to_target = False
+        self.current_path = None
+        self.current_path_index = 0
         self.steps = 0
         
+        # 重置可視化相關的狀態
         if self.plot:
             self.initialize_visualization()
-            
+        
+        # 執行初始觀測
         return self.begin()
 
     def check_done(self):
@@ -1162,4 +1179,6 @@ class Robot:
     def cleanup_visualization(self):
         """清理可視化資源"""
         if hasattr(self, 'fig'):
-            plt.close(self.fig)
+            plt.close(self.fig)  # 關閉特定的figure
+            plt.clf()  # 清除當前figure
+            self.fig = None  # 重置figure引用
