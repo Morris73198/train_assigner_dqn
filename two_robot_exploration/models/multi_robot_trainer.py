@@ -219,6 +219,10 @@ class MultiRobotTrainer:
                     self.gamma * np.max(target_predictions['robot1'][i])
                 robot2_targets[i][robot2_action] = robot2_reward + \
                     self.gamma * np.max(target_predictions['robot2'][i])
+                    
+                    
+        # print("Robot1 target values:", robot1_targets[0])
+        # print("Robot2 target values:", robot2_targets[0])
         
         # 訓練模型
         loss = self.model.model.train_on_batch(
@@ -233,6 +237,8 @@ class MultiRobotTrainer:
                 'robot2': robot2_targets
             }
         )
+        # print("Training loss details:", loss)
+        
         
         # 更新探索率
         if self.epsilon > self.epsilon_min:
@@ -347,8 +353,14 @@ class MultiRobotTrainer:
                         )
                         
                         loss = self.train_step()
-                        if loss is not None and isinstance(loss, (int, float)):
-                            episode_losses.append(loss)
+                        # if loss is not None and isinstance(loss, (int, float)):
+                        #     episode_losses.append(loss)
+                        if loss is not None:
+                            # 如果是列表，取平均值
+                            if isinstance(loss, list):
+                                episode_losses.append(np.mean(loss))
+                            elif isinstance(loss, (int, float)):
+                                episode_losses.append(loss)
                     
                     # 更新獎勵統計
                     total_reward += (robot1_reward + robot2_reward)

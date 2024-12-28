@@ -10,7 +10,7 @@ MODEL_CONFIG = {
     'input_shape': (84, 84, 1),      # 輸入影像的形狀
     'max_frontiers': 50,            # 最大前沿點數量，需與動作空間大小匹配
     'memory_size': 10000,            # 經驗回放緩衝區大小
-    'batch_size': 16,                # 訓練批次大小
+    'batch_size': 8,                # 訓練批次大小
     'gamma': 0.99,                   # 獎勵折扣因子
     'epsilon_min': 0.1,              # 最小探索率
     'epsilon_decay': 0.995           # 探索率衰減係數
@@ -21,7 +21,7 @@ TRAIN_CONFIG = {
     'episodes': 1000000,             # 訓練總回合數
     'steps_per_episode': 5000,       # 每回合最大步數
     'target_update_freq': 20,        # 目標網路更新頻率
-    'save_freq': 20,                 # 模型儲存頻率
+    'save_freq': 1,                 # 模型儲存頻率
 }
 
 # 機器人配置
