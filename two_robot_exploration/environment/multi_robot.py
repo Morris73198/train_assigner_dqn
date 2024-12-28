@@ -165,37 +165,41 @@ class Robot:
         return state
 
     def move_to_frontier(self, target_frontier):
-        """改進的移動到frontier方法，一次只移動一步"""
-        if not self.is_moving_to_target or not np.array_equal(self.current_target_frontier, target_frontier):
-            # 新的移動任務，初始化路徑
-            self.current_target_frontier = target_frontier.copy()
-            self.is_moving_to_target = True
-            
+        """移動到frontier，一次移動一步，直到到達目標或確定無法到達"""
+        # 如果沒有當前路徑或需要重新規劃路徑
+        if not hasattr(self, 'current_path') or self.current_path is None:
             path = self.astar_path(
-                self.op_map, 
+                self.op_map,
                 self.robot_position.astype(np.int32),
                 target_frontier.astype(np.int32),
                 safety_distance=ROBOT_CONFIG['safety_distance']
             )
             
             if path is None:
-                self.is_moving_to_target = False
+                # 無法找到路徑，返回失敗
                 return self.get_observation(), -1, True
                 
             self.current_path = self.simplify_path(path, ROBOT_CONFIG['path_simplification'])
             self.current_path_index = 0
 
-        # 從當前路徑點移動一步
-        if not hasattr(self, 'current_path') or self.current_path_index >= len(self.current_path.T):
-            self.is_moving_to_target = False
-            return self.get_observation(), 0, True
+        # 檢查是否還有路徑點要處理
+        if self.current_path_index >= len(self.current_path.T):
+            # 路徑執行完畢，檢查是否到達目標
+            dist_to_target = np.linalg.norm(self.robot_position - target_frontier)
+            if dist_to_target < ROBOT_CONFIG['target_reach_threshold']:
+                # 成功到達目標
+                self.current_path = None
+                return self.get_observation(), 1.0, True
+            else:
+                # 需要重新規劃路徑
+                self.current_path = None
+                return self.get_observation(), -0.1, True
 
-        # 計算下一步的位置
-        current_pos = self.robot_position
-        target_pos = self.current_path[:, self.current_path_index]
+        # 獲取下一個路徑點
+        next_point = self.current_path[:, self.current_path_index]
         
         # 計算移動向量
-        move_vector = target_pos - current_pos
+        move_vector = next_point - self.robot_position
         dist = np.linalg.norm(move_vector)
         
         # 調整步長
@@ -203,19 +207,80 @@ class Robot:
             move_vector = move_vector * (ROBOT_CONFIG['movement_step'] / dist)
         
         # 執行一步移動
-        next_state, reward, done = self.execute_movement(move_vector)
+        old_position = self.robot_position.copy()
+        old_op_map = self.op_map.copy()
+        
+        # 更新位置
+        new_position = self.robot_position + move_vector
+        self.robot_position = np.round(new_position).astype(np.int64)
+        
+        # 記錄路徑點
+        self.xPoint = np.append(self.xPoint, self.robot_position[0])
+        self.yPoint = np.append(self.yPoint, self.robot_position[1])
+        
+        # 邊界檢查
+        self.robot_position[0] = np.clip(self.robot_position[0], 0, self.map_size[1]-1)
+        self.robot_position[1] = np.clip(self.robot_position[1], 0, self.map_size[0]-1)
+        
+        # 碰撞檢查
+        collision_points, collision_index = self.fast_collision_check(
+            old_position, self.robot_position, self.map_size, self.global_map
+        )
+        
+        if collision_index:
+            # 發生碰撞，任務失敗
+            self.robot_position = self.nearest_free(self.free_tree, collision_points)
+            self.current_path = None
+            return self.get_observation(), REWARD_CONFIG['collision_penalty'], True
+        
+        # 更新地圖和獎勵
+        self.op_map = self.inverse_sensor(
+            self.robot_position, self.sensor_range, 
+            self.op_map, self.global_map
+        )
+        
+        reward = self.calculate_fast_reward(old_op_map, self.op_map, move_vector)
         
         # 更新路徑索引
-        if not done:
+        if dist <= ROBOT_CONFIG['movement_step']:
             self.current_path_index += 1
         
-        # 檢查是否到達目標
-        dist_to_target = np.linalg.norm(self.robot_position - target_frontier)
-        if dist_to_target < ROBOT_CONFIG['target_reach_threshold']:
-            done = True
-            self.is_moving_to_target = False
+        # 檢查地圖變化是否需要重新規劃路徑
+        if self.should_replan_path(self.current_path[:, self.current_path_index:]):
+            self.current_path = None
+            return self.get_observation(), reward, True
         
-        return next_state, reward, done
+        # 更新可視化
+        self.steps += 1
+        if self.plot and self.steps % ROBOT_CONFIG['plot_interval'] == 0:
+            self.plot_env()
+        
+        # 繼續執行，未完成
+        return self.get_observation(), reward, False
+
+    def should_replan_path(self, remaining_path):
+        """檢查是否需要重新規劃路徑
+        
+        Args:
+            remaining_path: 剩餘的路徑點
+            
+        Returns:
+            bool: True如果需要重新規劃，False否則
+        """
+        if len(remaining_path.T) == 0:
+            return True
+            
+        # 檢查剩餘路徑是否被阻擋
+        for i in range(len(remaining_path.T) - 1):
+            start = remaining_path[:, i]
+            end = remaining_path[:, i + 1]
+            collision_points, collision_index = self.fast_collision_check(
+                start, end, self.map_size, self.op_map
+            )
+            if collision_index:
+                return True
+                
+        return False
 
     def check_path_blocked(self, path_points):
         """檢查路徑是否被阻擋
@@ -519,72 +584,58 @@ class Robot:
         plt.figure(self.fig.number)
         plt.clf()  # 清除當前 figure
         
+        # 1. 繪製基礎地圖
         plt.imshow(self.op_map, cmap='gray')
         plt.axis((0, self.map_size[1], self.map_size[0], 0))
         
-        # 繪製路徑，Robot1用紫色，Robot2用橘色
-        if self.is_primary:
-            path_color = '#800080'  # 紫色
-            robot_color = '#800080'
-        else:
-            path_color = '#FFA500'  # 橘色
-            robot_color = '#FFA500'
+        # 2. 繪製路徑軌跡
+        path_color = '#800080' if self.is_primary else '#FFA500'  # Robot1紫色，Robot2橘色
+        if len(self.xPoint) > 1:  # 確保有超過一個點才畫線
+            plt.plot(self.xPoint, self.yPoint, color=path_color, 
+                    linewidth=2, label=f'{"Robot1" if self.is_primary else "Robot2"} Path')
         
-        plt.plot(self.xPoint, self.yPoint, color=path_color, 
-                linewidth=2, label=f'{"Robot1" if self.is_primary else "Robot2"} Path')
-        
-        # 繪製frontier點
+        # 3. 繪製 frontier 點
         frontiers = self.get_frontiers()
         if len(frontiers) > 0:
             plt.scatter(frontiers[:, 0], frontiers[:, 1], 
                     c='red', marker='*', s=100, label='Frontiers')
         
-        # 繪製目標frontier
-        if self.current_target_frontier is not None:
+        # 4. 繪製目標 frontier 和規劃路徑
+        if hasattr(self, 'current_target_frontier') and self.current_target_frontier is not None:
+            # 目標點
             plt.plot(self.current_target_frontier[0], self.current_target_frontier[1], 
                     'go', markersize=10, label='Target Frontier')
             
-            # 繪製規劃路徑
-            path = self.astar_path(
-                self.op_map,
-                self.robot_position.astype(np.int32),
-                self.current_target_frontier.astype(np.int32)
-            )
-            
-            if path is not None and path.shape[1] > 1:
-                path_x = path[0, :]
-                path_y = path[1, :]
-                plt.plot(path_x, path_y, '--', color=path_color, linewidth=2, 
-                        alpha=0.8, label='Planned Path')
-                
-                # 繪製移動方向箭頭
-                if len(path_x) > 1:
-                    direction_x = path_x[1] - self.robot_position[0]
-                    direction_y = path_y[1] - self.robot_position[1]
-                    
-                    magnitude = np.sqrt(direction_x**2 + direction_y**2)
-                    if magnitude > 0:
-                        direction_x = direction_x / magnitude * 20  
-                        direction_y = direction_y / magnitude * 20
-                        
-                        plt.arrow(self.robot_position[0], self.robot_position[1],
-                                direction_x, direction_y,
-                                head_width=3, head_length=3, 
-                                fc=robot_color, ec=robot_color,
-                                label='Movement Direction', zorder=5)
+            # 如果有當前路徑，顯示規劃路徑
+            if hasattr(self, 'current_path') and self.current_path is not None:
+                remaining_path = self.current_path[:, self.current_path_index:]
+                if remaining_path.shape[1] > 1:
+                    plt.plot(remaining_path[0, :], remaining_path[1, :], '--', 
+                            color=path_color, linewidth=2, alpha=0.8, label='Planned Path')
         
-        # 繪製當前位置和起始位置
+        # 5. 繪製當前位置
         plt.plot(self.robot_position[0], self.robot_position[1], 
-                'o', color=robot_color, markersize=8, label='Current Position')
-        plt.plot(self.xPoint[0], self.yPoint[0], 
-                'o', color='cyan', markersize=8, label='Start Position')
+                'o', color=path_color, markersize=8, label='Current Position')
         
-        # 標籤和標題設置
-        plt.legend(loc='upper right', bbox_to_anchor=(1.3, 1.0))
+        # 6. 繪製起始位置
+        if len(self.xPoint) > 0:
+            plt.plot(self.xPoint[0], self.yPoint[0], 
+                    'o', color='cyan', markersize=8, label='Start Position')
+        
+        # 7. 繪製另一個機器人的位置
+        other_color = '#FFA500' if self.is_primary else '#800080'
+        plt.plot(self.other_robot_position[0], self.other_robot_position[1], 
+                'o', color=other_color, markersize=8, label='Other Robot')
+        
+        # 8. 添加圖例和標題
+        plt.legend(loc='upper left', bbox_to_anchor=(1.05, 1.0))
         explored_ratio = np.sum(self.op_map == 255) / np.sum(self.global_map == 255)
         plt.title(f'{"Robot1" if self.is_primary else "Robot2"} Exploration Progress: {explored_ratio:.1%}')
         
-        # 重要！使用 draw 和 flush_events 來更新圖表，而不是 plt.pause
+        # 9. 調整布局以適應圖例
+        plt.tight_layout()
+        
+        # 10. 更新圖表
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
 
