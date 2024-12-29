@@ -132,7 +132,7 @@ class MultiRobotTrainer:
         
         # 避免兩個機器人選擇相同的目標
         robot1_action = np.argmax(robot1_q)
-        robot2_q[robot1_action] *= 0.5  # 降低已被Robot1選擇的點的權重
+        # robot2_q[robot1_action] *= 0.5  # 降低已被Robot1選擇的點的權重
         robot2_action = np.argmax(robot2_q)
         
         return robot1_action, robot2_action
