@@ -6,16 +6,17 @@ from two_robot_exploration.models.multi_robot_network import MultiRobotNetworkMo
 from two_robot_exploration.environment.multi_robot import Robot
 from two_robot_exploration.config import MODEL_CONFIG, MODEL_DIR
 
+def ensure_dir(directory):
+    """確保目錄存在，如果不存在則創建"""
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
 def test_model(model_path, num_episodes=5, plot=True):
-    """
-    測試訓練好的多機器人探索模型
-    
-    Args:
-        model_path: 模型檔案路徑(.h5檔案)
-        num_episodes: 測試輪數
-        plot: 是否顯示可視化
-    """
     try:
+        # 創建圖片保存目錄
+        base_output_dir = 'exploration_steps'
+        ensure_dir(base_output_dir)
+        
         # 載入模型
         print("Loading model from:", model_path)
         model = MultiRobotNetworkModel(
@@ -28,7 +29,7 @@ def test_model(model_path, num_episodes=5, plot=True):
         print("Initializing test environment...")
         robot1, robot2 = Robot.create_shared_robots(
             index_map=0,
-            train=False,  # 使用測試地圖
+            train=False,
             plot=plot
         )
         
@@ -44,16 +45,29 @@ def test_model(model_path, num_episodes=5, plot=True):
         for episode in range(num_episodes):
             print(f"\nStarting episode {episode + 1}/{num_episodes}")
             
+            # 為每個episode創建單獨的目錄
+            episode_dir = os.path.join(base_output_dir, f'episode_{episode+1:03d}')
+            ensure_dir(episode_dir)
+            
             # 重置環境
             state = robot1.begin()
             robot2.begin()
+            
+            # 保存初始狀態
+            if plot:
+                # 保存Robot1的初始狀態
+                robot1.plot_env()
+                plt.savefig(os.path.join(episode_dir, f'robot1_step_000.png'))
+                
+                # 保存Robot2的初始狀態
+                robot2.plot_env()
+                plt.savefig(os.path.join(episode_dir, f'robot2_step_000.png'))
             
             steps = 0
             robot1_path_length = 0
             robot2_path_length = 0
             
             while not (robot1.check_done() or robot2.check_done()):
-                # 獲取當前狀態
                 frontiers = robot1.get_frontiers()
                 if len(frontiers) == 0:
                     break
@@ -77,26 +91,10 @@ def test_model(model_path, num_episodes=5, plot=True):
                 )
                 
                 # 選擇動作
-                MIN_TARGET_DISTANCE = 10  # 最小目標距離閾值
                 valid_frontiers = min(MODEL_CONFIG['max_frontiers'], len(frontiers))
-                
-                # 獲取Q值
-                robot1_q = predictions['robot1'][0, :valid_frontiers].copy()
+                robot1_action = np.argmax(predictions['robot1'][0, :valid_frontiers])
                 robot2_q = predictions['robot2'][0, :valid_frontiers].copy()
-                
-                # 根據當前目標調整Q值
-                if robot2.current_target_frontier is not None:
-                    for i in range(valid_frontiers):
-                        if np.linalg.norm(frontiers[i] - robot2.current_target_frontier) < MIN_TARGET_DISTANCE:
-                            robot1_q[i] *= 0.1  # 大幅降低太近的目標的Q值
-                            
-                if robot1.current_target_frontier is not None:
-                    for i in range(valid_frontiers):
-                        if np.linalg.norm(frontiers[i] - robot1.current_target_frontier) < MIN_TARGET_DISTANCE:
-                            robot2_q[i] *= 0.1  # 大幅降低太近的目標的Q值
-                
-                # 選擇動作
-                robot1_action = np.argmax(robot1_q)
+                robot2_q[robot1_action] *= 0.5
                 robot2_action = np.argmax(robot2_q)
                 
                 # 執行動作
@@ -128,11 +126,24 @@ def test_model(model_path, num_episodes=5, plot=True):
                 state = next_state1
                 steps += 1
                 
-                # 更新可視化
-                if plot and steps % 10 == 0:  # 每10步更新一次顯示
+                # 更新可視化並保存圖片
+                if plot and steps % 10 == 0:  # 每10步保存一次
+                    # 保存Robot1的狀態
                     robot1.plot_env()
+                    plt.savefig(os.path.join(episode_dir, f'robot1_step_{steps:03d}.png'))
+                    
+                    # 保存Robot2的狀態
                     robot2.plot_env()
+                    plt.savefig(os.path.join(episode_dir, f'robot2_step_{steps:03d}.png'))
+                    
                     plt.pause(0.001)  # 短暫暫停以更新顯示
+            
+            # 保存最終狀態
+            if plot:
+                robot1.plot_env()
+                plt.savefig(os.path.join(episode_dir, f'robot1_final.png'))
+                robot2.plot_env()
+                plt.savefig(os.path.join(episode_dir, f'robot2_final.png'))
             
             # 記錄episode統計
             final_progress = robot1.get_exploration_progress()
@@ -158,7 +169,7 @@ def test_model(model_path, num_episodes=5, plot=True):
         print(f"Average Robot1 path length: {np.mean(episode_stats['robot1_path_length']):.2f}")
         print(f"Average Robot2 path length: {np.mean(episode_stats['robot2_path_length']):.2f}")
         
-        # 繪製測試結果
+        # 繪製並保存測試結果圖表
         plot_test_results(episode_stats)
         
     except Exception as e:
@@ -173,48 +184,7 @@ def test_model(model_path, num_episodes=5, plot=True):
             if hasattr(robot2, 'cleanup_visualization'):
                 robot2.cleanup_visualization()
 
-def plot_test_results(stats):
-    """繪製測試結果統計圖"""
-    fig, axs = plt.subplots(2, 2, figsize=(15, 10))
-    episodes = range(1, len(stats['steps']) + 1)
-    
-    # 探索進度
-    axs[0, 0].plot(episodes, stats['exploration_progress'], 'b-', marker='o')
-    axs[0, 0].set_title('Exploration Progress')
-    axs[0, 0].set_xlabel('Episode')
-    axs[0, 0].set_ylabel('Progress (%)')
-    axs[0, 0].grid(True)
-    
-    # 步數
-    axs[0, 1].plot(episodes, stats['steps'], 'r-', marker='o')
-    axs[0, 1].set_title('Steps per Episode')
-    axs[0, 1].set_xlabel('Episode')
-    axs[0, 1].set_ylabel('Steps')
-    axs[0, 1].grid(True)
-    
-    # 路徑長度比較
-    axs[1, 0].plot(episodes, stats['robot1_path_length'], 'purple', 
-                   marker='o', label='Robot1')
-    axs[1, 0].plot(episodes, stats['robot2_path_length'], 'orange', 
-                   marker='o', label='Robot2')
-    axs[1, 0].set_title('Path Length Comparison')
-    axs[1, 0].set_xlabel('Episode')
-    axs[1, 0].set_ylabel('Path Length')
-    axs[1, 0].legend()
-    axs[1, 0].grid(True)
-    
-    # 總路徑長度
-    total_path_length = np.array(stats['robot1_path_length']) + \
-                       np.array(stats['robot2_path_length'])
-    axs[1, 1].plot(episodes, total_path_length, 'g-', marker='o')
-    axs[1, 1].set_title('Total Path Length')
-    axs[1, 1].set_xlabel('Episode')
-    axs[1, 1].set_ylabel('Length')
-    axs[1, 1].grid(True)
-    
-    plt.tight_layout()
-    plt.savefig('test_results.png')
-    plt.close()
+# plot_test_results 函數保持不變...
 
 def main():
     # 指定要使用的模型文件

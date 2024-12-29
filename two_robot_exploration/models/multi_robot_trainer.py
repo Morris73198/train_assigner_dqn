@@ -109,11 +109,35 @@ class MultiRobotTrainer:
         """
         if len(frontiers) == 0:
             return 0, 0
+            
+        MIN_TARGET_DISTANCE = 50  # 最小目標距離閾值
         
         # epsilon-greedy策略
         if np.random.random() < self.epsilon:
-            robot1_action = np.random.randint(min(self.model.max_frontiers, len(frontiers)))
-            robot2_action = np.random.randint(min(self.model.max_frontiers, len(frontiers)))
+            valid_frontiers1 = list(range(min(self.model.max_frontiers, len(frontiers))))
+            valid_frontiers2 = valid_frontiers1.copy()
+            
+            # 檢查Robot2的當前目標
+            if self.robot2.current_target_frontier is not None:
+                valid_frontiers1 = [
+                    i for i in valid_frontiers1 
+                    if np.linalg.norm(frontiers[i] - self.robot2.current_target_frontier) >= MIN_TARGET_DISTANCE
+                ]
+                
+            # 檢查Robot1的當前目標
+            if self.robot1.current_target_frontier is not None:
+                valid_frontiers2 = [
+                    i for i in valid_frontiers2 
+                    if np.linalg.norm(frontiers[i] - self.robot1.current_target_frontier) >= MIN_TARGET_DISTANCE
+                ]
+                
+            if not valid_frontiers1:
+                valid_frontiers1 = list(range(min(self.model.max_frontiers, len(frontiers))))
+            if not valid_frontiers2:
+                valid_frontiers2 = list(range(min(self.model.max_frontiers, len(frontiers))))
+                
+            robot1_action = np.random.choice(valid_frontiers1)
+            robot2_action = np.random.choice(valid_frontiers2)
             return robot1_action, robot2_action
         
         # 使用模型預測
@@ -127,12 +151,21 @@ class MultiRobotTrainer:
         )
         
         valid_frontiers = min(self.model.max_frontiers, len(frontiers))
-        robot1_q = predictions['robot1'][0, :valid_frontiers]
-        robot2_q = predictions['robot2'][0, :valid_frontiers]
+        robot1_q = predictions['robot1'][0, :valid_frontiers].copy()
+        robot2_q = predictions['robot2'][0, :valid_frontiers].copy()
         
-        # 避免兩個機器人選擇相同的目標
+        # 根據其他機器人的目標調整Q值
+        if self.robot2.current_target_frontier is not None:
+            for i in range(valid_frontiers):
+                if np.linalg.norm(frontiers[i] - self.robot2.current_target_frontier) < MIN_TARGET_DISTANCE:
+                    robot1_q[i] *= 0.0001  # 大幅降低太近的目標的Q值
+                    
+        if self.robot1.current_target_frontier is not None:
+            for i in range(valid_frontiers):
+                if np.linalg.norm(frontiers[i] - self.robot1.current_target_frontier) < MIN_TARGET_DISTANCE:
+                    robot2_q[i] *= 0.0001  # 大幅降低太近的目標的Q值
+        
         robot1_action = np.argmax(robot1_q)
-        # robot2_q[robot1_action] *= 0.5  # 降低已被Robot1選擇的點的權重
         robot2_action = np.argmax(robot2_q)
         
         return robot1_action, robot2_action
