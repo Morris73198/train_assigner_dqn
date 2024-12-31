@@ -213,6 +213,12 @@ class Robot:
         move_vector = next_point - self.robot_position
         dist = np.linalg.norm(move_vector)
         
+        # 確保最小移動距離
+        MIN_MOVEMENT = 1.0  # 最小移動距離
+        if dist < MIN_MOVEMENT:
+            self.current_path_index += 1
+            return self.get_observation(), 0, False
+        
         # 調整步長
         if dist > ROBOT_CONFIG['movement_step']:
             move_vector = move_vector * (ROBOT_CONFIG['movement_step'] / dist)
@@ -232,6 +238,9 @@ class Robot:
         # 邊界檢查
         self.robot_position[0] = np.clip(self.robot_position[0], 0, self.map_size[1]-1)
         self.robot_position[1] = np.clip(self.robot_position[1], 0, self.map_size[0]-1)
+        
+        # 打印移動信息（用於調試）
+        # print(f"Moving from {old_position} to {self.robot_position}, dist: {dist}")
         
         # 碰撞檢查
         collision_points, collision_index = self.fast_collision_check(
@@ -269,6 +278,7 @@ class Robot:
         
         # 繼續執行，未完成
         return self.get_observation(), reward, False
+
 
     def should_replan_path(self, remaining_path):
         """檢查是否需要重新規劃路徑
